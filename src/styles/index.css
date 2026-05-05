@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+@theme {
+  --font-outfit: 'Outfit', sans-serif;
+  --color-gpl-red: #ef4444;
+  --color-gpl-blue: #3b82f6;
+  --color-gpl-green: #22c55e;
+  --color-gpl-amber: #f59e0b;
+  --color-gpl-purple: #8b5cf6;
+  --color-gpl-pink: #ec4899;
+}
+
+@layer base {
+  /* LIGHT MODE = DEFAULT */
+  :root {
+    --gpl-bg: #f1f5f9;
+    --gpl-surface: #ffffff;
+    --gpl-surface-2: #f8fafc;
+    --gpl-card: rgba(255, 255, 255, 0.9);
+    --gpl-card-solid: #ffffff;
+    --gpl-border: rgba(0, 0, 0, 0.08);
+    --gpl-text: #0f172a;
+    --gpl-text-secondary: #475569;
+    --gpl-text-muted: #94a3b8;
+    --gpl-inset: rgba(0, 0, 0, 0.035);
+    --gpl-input-bg: rgba(0, 0, 0, 0.03);
+    --gpl-input-border: rgba(0, 0, 0, 0.12);
+    --gpl-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
+    --gpl-glow: rgba(59, 130, 246, 0.08);
+  }
+
+  .dark {
+    --gpl-bg: #0a0e17;
+    --gpl-surface: #111827;
+    --gpl-surface-2: #1e293b;
+    --gpl-card: rgba(17, 24, 39, 0.85);
+    --gpl-card-solid: #111827;
+    --gpl-border: rgba(255, 255, 255, 0.08);
+    --gpl-text: #f1f5f9;
+    --gpl-text-secondary: #94a3b8;
+    --gpl-text-muted: #64748b;
+    --gpl-inset: rgba(255, 255, 255, 0.04);
+    --gpl-input-bg: rgba(255, 255, 255, 0.05);
+    --gpl-input-border: rgba(255, 255, 255, 0.1);
+    --gpl-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+    --gpl-glow: rgba(59, 130, 246, 0.15);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--gpl-border) transparent;
+  }
+
+  body {
+    font-family: 'Outfit', sans-serif;
+    background: var(--gpl-bg);
+    color: var(--gpl-text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background 0.2s, color 0.2s;
+  }
+}
+
+@layer components {
+  .gpl-card {
+    background: var(--gpl-card);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--gpl-border);
+    border-radius: 16px;
+    box-shadow: var(--gpl-shadow);
+  }
+
+  .gpl-card-solid {
+    background: var(--gpl-card-solid);
+    border: 1px solid var(--gpl-border);
+    border-radius: 16px;
+    box-shadow: var(--gpl-shadow);
+  }
+
+  .gpl-input {
+    background: var(--gpl-input-bg);
+    border: 1px solid var(--gpl-input-border);
+    color: var(--gpl-text);
+    border-radius: 12px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .gpl-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  }
+
+  .gpl-input::placeholder {
+    color: var(--gpl-text-muted);
+  }
+
+  select.gpl-input {
+    appearance: none;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2364748b'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 16px;
+    padding-right: 36px;
+  }
+
+  select.gpl-input option {
+    background: var(--gpl-surface);
+    color: var(--gpl-text);
+  }
+
+  .gpl-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 10px;
+    border-radius: 9999px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+}
+
+@layer utilities {
+  .text-gpl { color: var(--gpl-text); }
+  .text-gpl-secondary { color: var(--gpl-text-secondary); }
+  .text-gpl-muted { color: var(--gpl-text-muted); }
+  .bg-gpl { background: var(--gpl-bg); }
+  .bg-gpl-surface { background: var(--gpl-surface); }
+  .bg-gpl-surface-2 { background: var(--gpl-surface-2); }
+  .bg-gpl-inset { background: var(--gpl-inset); }
+  .border-gpl { border-color: var(--gpl-border); }
+}
