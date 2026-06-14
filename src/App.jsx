@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
 import TopBar from '@/components/layout/TopBar';
 import ToastContainer from '@/components/ui/ToastContainer';
 
-// Pages
+// Public pages
 import PlayersPage from '@/pages/public/PlayersPage';
 import PlayerDetailPage from '@/pages/public/PlayerDetailPage';
 import TeamSheetsPage from '@/pages/public/TeamSheetsPage';
@@ -11,30 +12,33 @@ import GameWeekPage from '@/pages/public/GameWeekPage';
 import LeaderboardPage from '@/pages/public/LeaderboardPage';
 import PlayerComparePage from '@/pages/public/PlayerComparePage';
 import SeasonXIPage from '@/pages/public/SeasonXIPage';
+
+// Admin pages
 import LoginPage from '@/pages/admin/LoginPage';
 import DashboardPage from '@/pages/admin/DashboardPage';
 import PlayerManagementPage from '@/pages/admin/PlayerManagementPage';
 import TeamGeneratorPage from '@/pages/admin/TeamGeneratorPage';
 import GameWeekManagerPage from '@/pages/admin/GameWeekManagerPage';
 
-const PAGE_MAP = {
-  players: PlayersPage,
-  playerDetail: PlayerDetailPage,
-  teamSheets: TeamSheetsPage,
-  gameWeeks: GameWeekPage,
-  leaderboard: LeaderboardPage,
-  compare: PlayerComparePage,
-  seasonXI: SeasonXIPage,
-  login: LoginPage,
-  dashboard: DashboardPage,
-  playerMgmt: PlayerManagementPage,
-  teamGen: TeamGeneratorPage,
-  gwManager: GameWeekManagerPage,
-};
-
 const ADMIN_PAGES = ['dashboard', 'playerMgmt', 'teamGen', 'gwManager'];
 
-export default function App() {
+const ADMIN_PAGE_MAP = {
+  dashboard:  DashboardPage,
+  playerMgmt: PlayerManagementPage,
+  teamGen:    TeamGeneratorPage,
+  gwManager:  GameWeekManagerPage,
+};
+
+// Scrolls to top on every URL change (public navigation).
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [pathname]);
+  return null;
+}
+
+function AppContent() {
   const { darkMode, currentPage, isAdmin, loading, subscribeToData } = useStore();
 
   useEffect(() => {
@@ -42,14 +46,14 @@ export default function App() {
     return unsub;
   }, [subscribeToData]);
 
+  // Scroll to top when admin switches between admin pages.
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, [currentPage]);
 
-  const effectivePage =
-    ADMIN_PAGES.includes(currentPage) && !isAdmin ? 'login' : currentPage;
-
-  const PageComponent = PAGE_MAP[effectivePage] || PlayersPage;
+  const showLogin = currentPage === 'login' && !isAdmin;
+  const showAdmin = isAdmin && ADMIN_PAGES.includes(currentPage);
+  const AdminPage = showAdmin ? ADMIN_PAGE_MAP[currentPage] : null;
 
   if (loading) {
     return (
@@ -66,15 +70,35 @@ export default function App() {
 
   return (
     <div className={darkMode ? 'dark' : ''}>
+      <ScrollToTop />
       <ToastContainer />
-
       <div className="min-h-screen" style={{ background: 'var(--gpl-bg)' }}>
         <TopBar />
-
         <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
-          <PageComponent />
+          {showLogin && <LoginPage />}
+          {showAdmin && AdminPage && <AdminPage />}
+          {!showLogin && !showAdmin && (
+            <Routes>
+              <Route path="/"            element={<PlayersPage />} />
+              <Route path="/players/:id" element={<PlayerDetailPage />} />
+              <Route path="/compare"     element={<PlayerComparePage />} />
+              <Route path="/team-sheets" element={<TeamSheetsPage />} />
+              <Route path="/game-weeks"  element={<GameWeekPage />} />
+              <Route path="/leaderboard" element={<LeaderboardPage />} />
+              <Route path="/season-xi"   element={<SeasonXIPage />} />
+              <Route path="*"            element={<Navigate to="/" replace />} />
+            </Routes>
+          )}
         </main>
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppContent />
+    </BrowserRouter>
   );
 }

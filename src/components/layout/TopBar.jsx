@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
 import Logo from '@/components/ui/Logo';
 import {
@@ -7,28 +8,36 @@ import {
 } from '@/components/ui/Icons';
 
 const NAV_PUBLIC = [
-  { id: 'players', label: 'Players', Icon: IconUsers },
-  { id: 'compare', label: 'Compare', Icon: IconCompare },
-  { id: 'teamSheets', label: 'Team Sheets', Icon: IconShield },
-  { id: 'gameWeeks', label: 'Game Weeks', Icon: IconCalendar },
-  { id: 'leaderboard', label: 'Leaderboard', Icon: IconTrophy },
-  { id: 'seasonXI', label: 'Season XI', Icon: IconXI },
+  { label: 'Players',     Icon: IconUsers,    path: '/' },
+  { label: 'Compare',     Icon: IconCompare,  path: '/compare' },
+  { label: 'Team Sheets', Icon: IconShield,   path: '/team-sheets' },
+  { label: 'Game Weeks',  Icon: IconCalendar, path: '/game-weeks' },
+  { label: 'Leaderboard', Icon: IconTrophy,   path: '/leaderboard' },
+  { label: 'Season XI',   Icon: IconXI,       path: '/season-xi' },
 ];
 
 const NAV_ADMIN = [
-  { id: 'dashboard', label: 'Dashboard', Icon: IconChart },
-  { id: 'playerMgmt', label: 'Manage Players', Icon: IconUsers },
-  { id: 'teamGen', label: 'Team Generator', Icon: IconShuffle },
-  { id: 'gwManager', label: 'GW Manager', Icon: IconCalendar },
+  { id: 'dashboard',  label: 'Dashboard',        Icon: IconChart },
+  { id: 'playerMgmt', label: 'Manage Players',   Icon: IconUsers },
+  { id: 'teamGen',    label: 'Team Generator',   Icon: IconShuffle },
+  { id: 'gwManager',  label: 'GW Manager',       Icon: IconCalendar },
 ];
+
+const ADMIN_PAGES = ['dashboard', 'playerMgmt', 'teamGen', 'gwManager'];
+
+function isPublicNavActive(item, pathname) {
+  if (item.path === '/') return pathname === '/' || pathname.startsWith('/players');
+  return pathname.startsWith(item.path);
+}
 
 export default function TopBar() {
   const { currentPage, setPage, isAdmin, logout, darkMode, toggleTheme, addToast } = useStore();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [adminOpen, setAdminOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  // Close admin dropdown on outside click
   useEffect(() => {
     const handler = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setAdminOpen(false);
@@ -37,14 +46,21 @@ export default function TopBar() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const isPublicTab = NAV_PUBLIC.some((n) => n.id === currentPage);
+  // Navigate to a public URL; exit admin mode first if needed.
+  const goPublic = (path) => {
+    if (ADMIN_PAGES.includes(currentPage)) setPage('players');
+    navigate(path);
+    setMobileOpen(false);
+  };
+
   const isAdminTab = NAV_ADMIN.some((n) => n.id === currentPage);
 
   return (
     <header style={{ background: 'var(--gpl-surface)' }} className="border-b border-gpl sticky top-0 z-50">
-      {/* Top row: logo centered, theme + admin on right */}
+      {/* Top row */}
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between h-16">
+
           {/* Left: mobile menu + theme */}
           <div className="flex items-center gap-2">
             <button
@@ -62,9 +78,9 @@ export default function TopBar() {
             </button>
           </div>
 
-          {/* Center: Logo + name */}
+          {/* Center: Logo */}
           <button
-            onClick={() => setPage('players')}
+            onClick={() => goPublic('/')}
             className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
           >
             <Logo size={36} />
@@ -91,9 +107,7 @@ export default function TopBar() {
                 </button>
 
                 {adminOpen && (
-                  <div
-                    className="absolute right-0 top-full mt-2 w-52 gpl-card-solid rounded-xl shadow-xl overflow-hidden py-1 z-50"
-                  >
+                  <div className="absolute right-0 top-full mt-2 w-52 gpl-card-solid rounded-xl shadow-xl overflow-hidden py-1 z-50">
                     {NAV_ADMIN.map((item) => (
                       <button
                         key={item.id}
@@ -113,6 +127,7 @@ export default function TopBar() {
                       onClick={() => {
                         logout();
                         setPage('players');
+                        navigate('/');
                         addToast('Logged out', 'info');
                         setAdminOpen(false);
                       }}
@@ -141,16 +156,16 @@ export default function TopBar() {
         </div>
       </div>
 
-      {/* Public nav pills — desktop */}
+      {/* Public nav — desktop */}
       <div className="hidden md:block border-t border-gpl">
         <div className="max-w-7xl mx-auto px-4">
           <nav className="flex items-center gap-1 py-2 overflow-x-auto">
             {NAV_PUBLIC.map((item) => {
-              const active = currentPage === item.id || (currentPage === 'playerDetail' && item.id === 'players');
+              const active = isPublicNavActive(item, pathname);
               return (
                 <button
-                  key={item.id}
-                  onClick={() => setPage(item.id)}
+                  key={item.path}
+                  onClick={() => goPublic(item.path)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-all whitespace-nowrap ${
                     active
                       ? 'bg-blue-600 text-white shadow-sm'
@@ -171,11 +186,11 @@ export default function TopBar() {
         <div className="md:hidden border-t border-gpl" style={{ background: 'var(--gpl-surface)' }}>
           <div className="px-4 py-3 space-y-1">
             {NAV_PUBLIC.map((item) => {
-              const active = currentPage === item.id || (currentPage === 'playerDetail' && item.id === 'players');
+              const active = isPublicNavActive(item, pathname);
               return (
                 <button
-                  key={item.id}
-                  onClick={() => { setPage(item.id); setMobileOpen(false); }}
+                  key={item.path}
+                  onClick={() => goPublic(item.path)}
                   className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                     active
                       ? 'bg-blue-600 text-white'

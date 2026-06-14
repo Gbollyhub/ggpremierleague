@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
 import { POS_COLORS, POSITIONS } from '@/data/constants';
 import { getRatingColor, getRatingLabel, getPlayerWinRate } from '@/utils/players';
@@ -10,64 +11,94 @@ import { IconArrowLeft } from '@/components/ui/Icons';
 const gwCompleted = (gw) => gw.status === 'completed' || gw.completed === true;
 
 export default function PlayerDetailPage() {
-  const { selectedPlayer: p, setPage, gameWeeks } = useStore();
-  if (!p) return null;
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { players, gameWeeks } = useStore();
 
-  const posColor = POS_COLORS[p.position];
-  const winRate = useMemo(() => getPlayerWinRate(p.id, gameWeeks), [gameWeeks, p.id]);
+  const p = players.find((pl) => pl.id === id) ?? null;
+
+  // All hooks called unconditionally — no hooks after this block.
+  const winRate = useMemo(
+    () => (p ? getPlayerWinRate(p.id, gameWeeks) : 0),
+    [gameWeeks, p],
+  );
 
   const gwStats = useMemo(() => {
-    const totals = { shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0, fouls: 0, goalsConceded: 0, goalsConcededAsGK: 0, yellowCard: 0, redCard: 0, skillMoves: 0, bigChancesMissed: 0 };
+    const totals = {
+      shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
+      fouls: 0, goalsConceded: 0, goalsConcededAsGK: 0, yellowCard: 0, redCard: 0,
+      skillMoves: 0, bigChancesMissed: 0,
+    };
+    if (!p) return totals;
     gameWeeks.filter(gwCompleted).forEach((gw) => {
       const ps = gw.playerStats?.[p.id];
       if (!ps) return;
-      totals.shots += ps.shots || 0;
-      totals.shotsOnTarget += ps.shotsOnTarget || 0;
-      totals.shotsOffTarget += ps.shotsOffTarget || Math.max(0, (ps.shots || 0) - (ps.shotsOnTarget || 0));
-      totals.interceptions += ps.interceptions || 0;
-      totals.blocks += ps.blocks || 0;
-      totals.fouls += ps.fouls || 0;
-      totals.goalsConceded += ps.goalsConceded || ps.goalsConcededAsDF || 0;
+      totals.shots            += ps.shots || 0;
+      totals.shotsOnTarget    += ps.shotsOnTarget || 0;
+      totals.shotsOffTarget   += ps.shotsOffTarget || Math.max(0, (ps.shots || 0) - (ps.shotsOnTarget || 0));
+      totals.interceptions    += ps.interceptions || 0;
+      totals.blocks           += ps.blocks || 0;
+      totals.fouls            += ps.fouls || 0;
+      totals.goalsConceded    += ps.goalsConceded || ps.goalsConcededAsDF || 0;
       totals.goalsConcededAsGK += ps.goalsConcededAsGK || 0;
-      totals.yellowCard += ps.yellowCard ? 1 : 0;
-      totals.redCard += ps.redCard ? 1 : 0;
-      totals.skillMoves += ps.skillMoves || 0;
+      totals.yellowCard       += ps.yellowCard ? 1 : 0;
+      totals.redCard          += ps.redCard ? 1 : 0;
+      totals.skillMoves       += ps.skillMoves || 0;
       totals.bigChancesMissed += ps.bigChancesMissed || 0;
     });
     return totals;
-  }, [gameWeeks, p.id]);
+  }, [gameWeeks, p]);
+
+  // Player not found — show after hooks.
+  if (!p) {
+    return (
+      <div className="text-center py-20">
+        <p className="text-gpl-muted text-sm mb-4">Player not found.</p>
+        <button
+          onClick={() => navigate('/')}
+          className="inline-flex items-center gap-2 text-gpl-muted hover:text-gpl-secondary text-sm font-medium transition-colors"
+        >
+          <IconArrowLeft className="w-4 h-4" /> Back to Players
+        </button>
+      </div>
+    );
+  }
+
+  const posColor = POS_COLORS[p.position];
 
   const quickStats = [
-    { l: 'Games', v: p.stats.gamesPlayed },
-    { l: 'MOTM', v: p.stats.motm },
+    { l: 'Games',  v: p.stats.gamesPlayed },
+    { l: 'MOTM',   v: p.stats.motm },
     { l: 'Win Rate', v: `${winRate}%` },
     { l: p.position === 'GK' ? 'Saves' : 'Goals', v: p.position === 'GK' ? p.stats.saves : p.stats.goals },
   ];
 
   const seasonStats = [
-    { l: 'Goals', v: p.stats.goals, c: '#ef4444' },
-    { l: 'Assists', v: p.stats.assists, c: '#3b82f6' },
-    { l: 'Shots', v: gwStats.shots, c: '#ec4899' },
-    { l: 'Shots on Target', v: gwStats.shotsOnTarget, c: '#f97316' },
-    { l: 'Shots off Target', v: gwStats.shotsOffTarget, c: '#fb923c' },
-    { l: 'Skill Moves', v: gwStats.skillMoves, c: '#a78bfa' },
-    { l: 'Big Chances Missed', v: gwStats.bigChancesMissed, c: '#f43f5e' },
-    { l: 'Clean Sheets', v: p.stats.cleanSheets, c: '#22c55e' },
-    { l: 'Tackles', v: p.stats.tackles, c: '#f59e0b' },
-    { l: 'Interceptions', v: gwStats.interceptions, c: '#06b6d4' },
-    { l: 'Blocks', v: gwStats.blocks, c: '#8b5cf6' },
-    { l: 'Saves', v: p.stats.saves, c: '#6366f1' },
-    { l: 'Goals Conceded', v: gwStats.goalsConceded, c: '#f43f5e' },
-    { l: 'GK Goals Conceded', v: gwStats.goalsConcededAsGK, c: '#f43f5e' },
-    { l: 'Fouls', v: gwStats.fouls, c: '#94a3b8' },
-    { l: 'Yellow Cards', v: gwStats.yellowCard, c: '#eab308' },
-    { l: 'Red Cards', v: gwStats.redCard, c: '#ef4444' },
+    { l: 'Goals',               v: p.stats.goals,              c: '#ef4444' },
+    { l: 'Assists',             v: p.stats.assists,            c: '#3b82f6' },
+    { l: 'Shots',               v: gwStats.shots,              c: '#ec4899' },
+    { l: 'Shots on Target',     v: gwStats.shotsOnTarget,      c: '#f97316' },
+    { l: 'Shots off Target',    v: gwStats.shotsOffTarget,     c: '#fb923c' },
+    { l: 'Skill Moves',         v: gwStats.skillMoves,         c: '#a78bfa' },
+    { l: 'Big Chances Missed',  v: gwStats.bigChancesMissed,   c: '#f43f5e' },
+    { l: 'Clean Sheets',        v: p.stats.cleanSheets,        c: '#22c55e' },
+    { l: 'Tackles',             v: p.stats.tackles,            c: '#f59e0b' },
+    { l: 'Interceptions',       v: gwStats.interceptions,      c: '#06b6d4' },
+    { l: 'Blocks',              v: gwStats.blocks,             c: '#8b5cf6' },
+    { l: 'Saves',               v: p.stats.saves,              c: '#6366f1' },
+    { l: 'Goals Conceded',      v: gwStats.goalsConceded,      c: '#f43f5e' },
+    { l: 'GK Goals Conceded',   v: gwStats.goalsConcededAsGK,  c: '#f43f5e' },
+    { l: 'Fouls',               v: gwStats.fouls,              c: '#94a3b8' },
+    { l: 'Yellow Cards',        v: gwStats.yellowCard,         c: '#eab308' },
+    { l: 'Red Cards',           v: gwStats.redCard,            c: '#ef4444' },
   ];
 
   return (
     <div>
-      <button onClick={() => setPage('players')}
-        className="flex items-center gap-2 text-gpl-muted hover:text-gpl-secondary mb-6 text-sm font-medium transition-colors">
+      <button
+        onClick={() => navigate(-1)}
+        className="flex items-center gap-2 text-gpl-muted hover:text-gpl-secondary mb-6 text-sm font-medium transition-colors"
+      >
         <IconArrowLeft className="w-4 h-4" /> Back to Players
       </button>
 

@@ -1,11 +1,13 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
 import { POSITIONS } from '@/data/constants';
 import PlayerCard from '@/components/cards/PlayerCard';
 import { IconSearch } from '@/components/ui/Icons';
 
 export default function PlayersPage() {
-  const { players, setPage, setSelectedPlayer } = useStore();
+  const { players } = useStore();
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [posFilter, setPosFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState('rating');
@@ -19,11 +21,6 @@ export default function PlayersPage() {
     else if (sortBy === 'assists') list.sort((a, b) => b.stats.assists - a.stats.assists);
     return list;
   }, [players, search, posFilter, sortBy]);
-
-  const handleClick = (player) => {
-    setSelectedPlayer(player);
-    setPage('playerDetail');
-  };
 
   return (
     <div>
@@ -55,7 +52,7 @@ export default function PlayersPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filtered.map((p) => (
-          <PlayerCard key={p.id} player={p} onClick={handleClick} />
+          <PlayerCard key={p.id} player={p} onClick={() => navigate(`/players/${p.id}`)} />
         ))}
       </div>
 
