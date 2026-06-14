@@ -134,7 +134,7 @@ export const useStore = create((set, get) => ({
       const completed = gameWeeks.filter((gw) => gw.status === 'completed' || gw.completed === true);
       const batch = writeBatch(db);
       for (const p of players) {
-        const totals = { goals: 0, assists: 0, shots: 0, shotsOnTarget: 0, tackles: 0, interceptions: 0, blocks: 0, fouls: 0, saves: 0, goalsConceded: 0, gamesPlayed: 0 };
+        const totals = { goals: 0, assists: 0, shots: 0, shotsOnTarget: 0, tackles: 0, interceptions: 0, blocks: 0, fouls: 0, saves: 0, goalsConceded: 0, gamesPlayed: 0, skillMoves: 0, bigChancesMissed: 0 };
         let deltaSum = 0;
         completed.forEach((gw) => {
           const inA = (gw.teamA?.players || []).includes(p.id);
@@ -152,7 +152,9 @@ export const useStore = create((set, get) => ({
           totals.blocks += ms.blocks || 0;
           totals.fouls += ms.fouls || 0;
           totals.saves += ms.saves || 0;
-          totals.goalsConceded += ms.goalsConceded || 0;
+          totals.goalsConceded += ms.goalsConceded || ms.goalsConcededAsDF || 0;
+          totals.skillMoves += ms.skillMoves || 0;
+          totals.bigChancesMissed += ms.bigChancesMissed || 0;
           totals.gamesPlayed += 1;
         });
         const base = p.baseRating ?? (p.rating - deltaSum);
@@ -222,9 +224,10 @@ export const useStore = create((set, get) => ({
         set({ players: snap.docs.map((d) => ({ ...d.data(), id: d.id })) });
         if (!playersReady) { playersReady = true; checkReady(); }
       },
-      () => {
+      (err) => {
+        console.error('[Firestore players]', err.code, err.message);
         if (!playersReady) { playersReady = true; checkReady(); }
-        get().addToast('Database connection failed', 'error');
+        get().addToast(`Database error: ${err.code}`, 'error');
       },
     );
 
@@ -234,7 +237,8 @@ export const useStore = create((set, get) => ({
         set({ gameWeeks: snap.docs.map((d) => ({ ...d.data(), id: d.id })) });
         if (!gameWeeksReady) { gameWeeksReady = true; checkReady(); }
       },
-      () => {
+      (err) => {
+        console.error('[Firestore gameWeeks]', err.code, err.message);
         if (!gameWeeksReady) { gameWeeksReady = true; checkReady(); }
       },
     );

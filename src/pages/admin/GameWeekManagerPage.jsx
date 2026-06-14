@@ -5,16 +5,37 @@ import { IconPlus, IconX, IconStar, IconEdit, IconTrash } from '@/components/ui/
 
 const gwCompleted = (gw) => gw.status === 'completed' || gw.completed === true;
 
-const EMPTY_PERF = () => ({ tackles: 0, interceptions: 0, saves: 0, blocks: 0, shots: 0, shotsOnTarget: 0, fouls: 0, goalsConceded: 0, yellowCard: false, redCard: false });
-const EMPTY_STATS = () => ({ shots: 0, shotsOnTarget: 0, possession: 50, corners: 0, fouls: 0 });
+const EMPTY_PERF = () => ({
+  tackles: 0, interceptions: 0, saves: 0, blocks: 0,
+  shotsOnTarget: 0, shotsOffTarget: 0,
+  skillMoves: 0, bigChancesMissed: 0,
+  fouls: 0, goalsConceded: 0, goalsConcededAsGK: 0,
+  yellowCard: false, redCard: false,
+});
+
+const EMPTY_STATS = () => ({ corners: 0 });
 const EMPTY_FORM = () => ({
   teamAPlayers: [], teamBPlayers: [],
-  teamAScore: 0, teamBScore: 0,
   teamAGoals: [], teamBGoals: [],
   playerPerf: {},
   teamAStats: EMPTY_STATS(), teamBStats: EMPTY_STATS(),
   matchLink: '',
 });
+
+// Computes team-level aggregates from individual player perf entries
+function computeTeamStats(teamPlayers, playerPerf) {
+  let shots = 0, shotsOnTarget = 0, fouls = 0, skillMovesTotal = 0;
+  teamPlayers.forEach((pid) => {
+    const perf = playerPerf[pid] || EMPTY_PERF();
+    const sot = +perf.shotsOnTarget || 0;
+    const sof = +perf.shotsOffTarget || 0;
+    shotsOnTarget += sot;
+    shots += sot + sof;
+    fouls += +perf.fouls || 0;
+    skillMovesTotal += +perf.skillMoves || 0;
+  });
+  return { shots, shotsOnTarget, fouls, skillMovesTotal };
+}
 
 export default function GameWeekManagerPage() {
   const { players, gameWeeks, createGameWeek, completeGameWeek, deleteGameWeek, addToast } = useStore();
@@ -60,7 +81,11 @@ export default function GameWeekManagerPage() {
       if (!p) return null;
 
       let otherDeltaSum = 0;
-      const otherTotals = { goals: 0, assists: 0, tackles: 0, cleanSheets: 0, saves: 0, gamesPlayed: 0, motm: 0, shots: 0, shotsOnTarget: 0, interceptions: 0, blocks: 0, fouls: 0, goalsConceded: 0 };
+      const otherTotals = {
+        goals: 0, assists: 0, tackles: 0, cleanSheets: 0, saves: 0, gamesPlayed: 0, motm: 0,
+        shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
+        fouls: 0, goalsConceded: 0, skillMoves: 0, bigChancesMissed: 0,
+      };
       allOtherCompleted.forEach((og) => {
         const inA = (og.teamA?.players || []).includes(pid);
         const inB = (og.teamB?.players || []).includes(pid);
@@ -77,10 +102,13 @@ export default function GameWeekManagerPage() {
         otherTotals.motm += og.motm === pid ? 1 : 0;
         otherTotals.shots += ms.shots || 0;
         otherTotals.shotsOnTarget += ms.shotsOnTarget || 0;
+        otherTotals.shotsOffTarget += ms.shotsOffTarget || 0;
         otherTotals.interceptions += ms.interceptions || 0;
         otherTotals.blocks += ms.blocks || 0;
         otherTotals.fouls += ms.fouls || 0;
-        otherTotals.goalsConceded += ms.goalsConceded || 0;
+        otherTotals.goalsConceded += ms.goalsConceded || ms.goalsConcededAsDF || 0;
+        otherTotals.skillMoves += ms.skillMoves || 0;
+        otherTotals.bigChancesMissed += ms.bigChancesMissed || 0;
       });
 
       const inOldA = (gw.teamA?.players || []).includes(pid);
@@ -98,7 +126,9 @@ export default function GameWeekManagerPage() {
           stats: {
             goals: otherTotals.goals, assists: otherTotals.assists, tackles: otherTotals.tackles,
             cleanSheets: otherTotals.cleanSheets, saves: otherTotals.saves,
-            gamesPlayed: otherTotals.gamesPlayed, motm: otherTotals.motm, shots: otherTotals.shots,
+            gamesPlayed: otherTotals.gamesPlayed, motm: otherTotals.motm,
+            shots: otherTotals.shots, shotsOffTarget: otherTotals.shotsOffTarget,
+            skillMoves: otherTotals.skillMoves, bigChancesMissed: otherTotals.bigChancesMissed,
           },
         },
       };
@@ -142,7 +172,17 @@ export default function GameWeekManagerPage() {
     const playerPerf = {};
     allPids.forEach((pid) => {
       const ps = gw.playerStats?.[pid] || {};
-      playerPerf[pid] = { tackles: ps.tackles || 0, interceptions: ps.interceptions || 0, saves: ps.saves || 0, blocks: ps.blocks || 0, shots: ps.shots || 0, shotsOnTarget: ps.shotsOnTarget || 0, fouls: ps.fouls || 0, goalsConceded: ps.goalsConceded || 0, yellowCard: ps.yellowCard || false, redCard: ps.redCard || false };
+      // backward compat: derive shotsOffTarget from shots - shotsOnTarget for old records
+      const derivedSoF = ps.shotsOffTarget ?? Math.max(0, (ps.shots || 0) - (ps.shotsOnTarget || 0));
+      playerPerf[pid] = {
+        tackles: ps.tackles || 0, interceptions: ps.interceptions || 0,
+        saves: ps.saves || 0, blocks: ps.blocks || 0,
+        shotsOnTarget: ps.shotsOnTarget || 0, shotsOffTarget: derivedSoF,
+        skillMoves: ps.skillMoves || 0, bigChancesMissed: ps.bigChancesMissed || 0,
+        fouls: ps.fouls || 0, goalsConceded: ps.goalsConceded || ps.goalsConcededAsDF || 0,
+        goalsConcededAsGK: ps.goalsConcededAsGK || 0,
+        yellowCard: ps.yellowCard || false, redCard: ps.redCard || false,
+      };
     });
     // Rebuild goals — support both new (goals[]) and old (events[]) format
     const teamAGoals = [];
@@ -163,10 +203,9 @@ export default function GameWeekManagerPage() {
     setEditingGW(gw);
     setForm({
       teamAPlayers: gw.teamA?.players || [], teamBPlayers: gw.teamB?.players || [],
-      teamAScore: gw.teamA?.score ?? 0, teamBScore: gw.teamB?.score ?? 0,
       teamAGoals, teamBGoals, playerPerf,
-      teamAStats: { shots: gw.teamA?.shots || 0, shotsOnTarget: gw.teamA?.shotsOnTarget || 0, possession: gw.teamA?.possession ?? 50, corners: gw.teamA?.corners || 0, fouls: gw.teamA?.fouls || 0 },
-      teamBStats: { shots: gw.teamB?.shots || 0, shotsOnTarget: gw.teamB?.shotsOnTarget || 0, possession: gw.teamB?.possession ?? 50, corners: gw.teamB?.corners || 0, fouls: gw.teamB?.fouls || 0 },
+      teamAStats: { corners: gw.teamA?.corners || 0 },
+      teamBStats: { corners: gw.teamB?.corners || 0 },
       matchLink: gw.matchLink || '',
     });
     setMode('record');
@@ -174,8 +213,18 @@ export default function GameWeekManagerPage() {
 
   // ── Save / update result ──────────────────────────────────────────────────
   const handleRecord = async () => {
-    const { teamAPlayers, teamBPlayers, teamAScore, teamBScore, teamAGoals, teamBGoals, playerPerf, teamAStats, teamBStats } = form;
+    const { teamAPlayers, teamBPlayers, teamAGoals, teamBGoals, playerPerf, teamAStats, teamBStats } = form;
     if (!teamAPlayers.length || !teamBPlayers.length) { addToast('Both teams need players', 'error'); return; }
+
+    // Scores derived from goal entries
+    const teamAScore = teamAGoals.filter((g) => g.scorerId).length;
+    const teamBScore = teamBGoals.filter((g) => g.scorerId).length;
+
+    // Team-level stats derived from player performance
+    const teamACS = computeTeamStats(teamAPlayers, playerPerf);
+    const teamBCS = computeTeamStats(teamBPlayers, playerPerf);
+    const totalAct = teamACS.shots + teamACS.skillMovesTotal + teamBCS.shots + teamBCS.skillMovesTotal;
+    const possA = totalAct > 0 ? Math.round(Math.max(20, Math.min(80, (teamACS.shots + teamACS.skillMovesTotal) / totalAct * 100))) : 50;
 
     const goals = [
       ...teamAGoals.filter((g) => g.scorerId).map((g) => ({ ...g, team: 'A' })),
@@ -199,7 +248,18 @@ export default function GameWeekManagerPage() {
       const a = goals.filter((x) => x.assisterId === pid).length;
       const perf = playerPerf[pid] || EMPTY_PERF();
       const isCS = (inA && +teamBScore === 0) || (!inA && +teamAScore === 0);
-      const ms = { goals: g, assists: a, tackles: +perf.tackles || 0, interceptions: +perf.interceptions || 0, saves: +perf.saves || 0, blocks: +perf.blocks || 0, shots: +perf.shots || 0, shotsOnTarget: +perf.shotsOnTarget || 0, fouls: +perf.fouls || 0, yellowCard: !!perf.yellowCard, redCard: !!perf.redCard, goalsConceded: +perf.goalsConceded || 0 };
+      const sot = +perf.shotsOnTarget || 0;
+      const sof = +perf.shotsOffTarget || 0;
+      const ms = {
+        goals: g, assists: a,
+        tackles: +perf.tackles || 0, interceptions: +perf.interceptions || 0,
+        saves: +perf.saves || 0, blocks: +perf.blocks || 0,
+        shotsOnTarget: sot, shotsOffTarget: sof, shots: sot + sof,
+        skillMoves: +perf.skillMoves || 0, bigChancesMissed: +perf.bigChancesMissed || 0,
+        fouls: +perf.fouls || 0, yellowCard: !!perf.yellowCard, redCard: !!perf.redCard,
+        goalsConceded: inA ? teamBScore : teamAScore,
+        goalsConcededAsGK: +perf.goalsConcededAsGK || 0,
+      };
       playerStats[pid] = { ...ms, matchRating: calculateMatchRating(p, ms, isCS) };
     });
 
@@ -213,14 +273,13 @@ export default function GameWeekManagerPage() {
     const motm = getManOfTheMatch(motmCandidates);
 
     const gwUpdates = {
-      teamA: { name: 'Team A', players: teamAPlayers, score: +teamAScore, ...teamAStats },
-      teamB: { name: 'Team B', players: teamBPlayers, score: +teamBScore, ...teamBStats },
+      teamA: { name: 'Team A', players: teamAPlayers, score: teamAScore, shots: teamACS.shots, shotsOnTarget: teamACS.shotsOnTarget, possession: possA, fouls: teamACS.fouls, corners: teamAStats.corners || 0 },
+      teamB: { name: 'Team B', players: teamBPlayers, score: teamBScore, shots: teamBCS.shots, shotsOnTarget: teamBCS.shotsOnTarget, possession: 100 - possA, fouls: teamBCS.fouls, corners: teamBStats.corners || 0 },
       goals, events, playerStats, motm,
       matchLink: form.matchLink.trim() || null,
     };
 
     // Full recalculation — derive every player's rating and stats from scratch
-    // using baseRating + sum of all GW deltas (including this one).
     const isEditing = gwCompleted(editingGW);
     const allOtherCompleted = gameWeeks.filter((gw) => gwCompleted(gw) && gw.id !== editingGW.id);
     const oldMatchPlayers = isEditing ? [...(editingGW.teamA?.players || []), ...(editingGW.teamB?.players || [])] : [];
@@ -230,9 +289,12 @@ export default function GameWeekManagerPage() {
       const p = players.find((pl) => pl.id === pid);
       if (!p) return null;
 
-      // Aggregate contributions from every OTHER completed GW this player appeared in
       let otherDeltaSum = 0;
-      const otherTotals = { goals: 0, assists: 0, tackles: 0, cleanSheets: 0, saves: 0, gamesPlayed: 0, motm: 0, shots: 0, shotsOnTarget: 0, interceptions: 0, blocks: 0, fouls: 0, goalsConceded: 0 };
+      const otherTotals = {
+        goals: 0, assists: 0, tackles: 0, cleanSheets: 0, saves: 0, gamesPlayed: 0, motm: 0,
+        shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
+        fouls: 0, goalsConceded: 0, skillMoves: 0, bigChancesMissed: 0,
+      };
       allOtherCompleted.forEach((gw) => {
         const inA = (gw.teamA?.players || []).includes(pid);
         const inB = (gw.teamB?.players || []).includes(pid);
@@ -249,13 +311,15 @@ export default function GameWeekManagerPage() {
         otherTotals.motm += gw.motm === pid ? 1 : 0;
         otherTotals.shots += ms.shots || 0;
         otherTotals.shotsOnTarget += ms.shotsOnTarget || 0;
+        otherTotals.shotsOffTarget += ms.shotsOffTarget || 0;
         otherTotals.interceptions += ms.interceptions || 0;
         otherTotals.blocks += ms.blocks || 0;
         otherTotals.fouls += ms.fouls || 0;
-        otherTotals.goalsConceded += ms.goalsConceded || 0;
+        otherTotals.goalsConceded += ms.goalsConceded || ms.goalsConcededAsDF || 0;
+        otherTotals.skillMoves += ms.skillMoves || 0;
+        otherTotals.bigChancesMissed += ms.bigChancesMissed || 0;
       });
 
-      // Derive effective base rating for players that predate the baseRating field
       const baseRating = p.baseRating ?? (() => {
         let allCurrentDelta = otherDeltaSum;
         if (isEditing) {
@@ -270,7 +334,6 @@ export default function GameWeekManagerPage() {
         return p.rating - allCurrentDelta;
       })();
 
-      // Current GW contribution
       const inNewA = teamAPlayers.includes(pid);
       const inNewB = teamBPlayers.includes(pid);
       const isInNewMatch = inNewA || inNewB;
@@ -278,14 +341,26 @@ export default function GameWeekManagerPage() {
       const newIsCS = isInNewMatch && ((inNewA && +teamBScore === 0) || (inNewB && +teamAScore === 0));
       const thisGWDelta = isInNewMatch ? calculateRatingDelta(p, newMs, newIsCS) : 0;
       const thisGWTotals = isInNewMatch
-        ? { goals: newMs.goals || 0, assists: newMs.assists || 0, tackles: newMs.tackles || 0, cleanSheets: newIsCS ? 1 : 0, saves: newMs.saves || 0, gamesPlayed: 1, motm: pid === motm ? 1 : 0, shots: newMs.shots || 0, shotsOnTarget: newMs.shotsOnTarget || 0, interceptions: newMs.interceptions || 0, blocks: newMs.blocks || 0, fouls: newMs.fouls || 0, goalsConceded: newMs.goalsConceded || 0 }
-        : { goals: 0, assists: 0, tackles: 0, cleanSheets: 0, saves: 0, gamesPlayed: 0, motm: 0, shots: 0, shotsOnTarget: 0, interceptions: 0, blocks: 0, fouls: 0, goalsConceded: 0 };
+        ? {
+            goals: newMs.goals || 0, assists: newMs.assists || 0, tackles: newMs.tackles || 0,
+            cleanSheets: newIsCS ? 1 : 0, saves: newMs.saves || 0, gamesPlayed: 1, motm: pid === motm ? 1 : 0,
+            shots: newMs.shots || 0, shotsOnTarget: newMs.shotsOnTarget || 0, shotsOffTarget: newMs.shotsOffTarget || 0,
+            interceptions: newMs.interceptions || 0, blocks: newMs.blocks || 0,
+            fouls: newMs.fouls || 0, goalsConceded: newMs.goalsConceded || 0,
+            skillMoves: newMs.skillMoves || 0, bigChancesMissed: newMs.bigChancesMissed || 0,
+          }
+        : {
+            goals: 0, assists: 0, tackles: 0, cleanSheets: 0, saves: 0, gamesPlayed: 0, motm: 0,
+            shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
+            fouls: 0, goalsConceded: 0, skillMoves: 0, bigChancesMissed: 0,
+          };
 
       const seasonTotals = {
         goals: otherTotals.goals + thisGWTotals.goals,
         assists: otherTotals.assists + thisGWTotals.assists,
         shots: otherTotals.shots + thisGWTotals.shots,
         shotsOnTarget: otherTotals.shotsOnTarget + thisGWTotals.shotsOnTarget,
+        shotsOffTarget: otherTotals.shotsOffTarget + thisGWTotals.shotsOffTarget,
         tackles: otherTotals.tackles + thisGWTotals.tackles,
         interceptions: otherTotals.interceptions + thisGWTotals.interceptions,
         blocks: otherTotals.blocks + thisGWTotals.blocks,
@@ -293,6 +368,8 @@ export default function GameWeekManagerPage() {
         saves: otherTotals.saves + thisGWTotals.saves,
         goalsConceded: otherTotals.goalsConceded + thisGWTotals.goalsConceded,
         gamesPlayed: otherTotals.gamesPlayed + thisGWTotals.gamesPlayed,
+        skillMoves: otherTotals.skillMoves + thisGWTotals.skillMoves,
+        bigChancesMissed: otherTotals.bigChancesMissed + thisGWTotals.bigChancesMissed,
       };
 
       return {
@@ -307,9 +384,12 @@ export default function GameWeekManagerPage() {
             tackles: seasonTotals.tackles,
             cleanSheets: otherTotals.cleanSheets + thisGWTotals.cleanSheets,
             saves: seasonTotals.saves,
-            gamesPlayed: otherTotals.gamesPlayed + thisGWTotals.gamesPlayed,
+            gamesPlayed: seasonTotals.gamesPlayed,
             motm: otherTotals.motm + thisGWTotals.motm,
             shots: seasonTotals.shots,
+            shotsOffTarget: seasonTotals.shotsOffTarget,
+            skillMoves: seasonTotals.skillMoves,
+            bigChancesMissed: seasonTotals.bigChancesMissed,
           },
         },
       };
@@ -356,6 +436,30 @@ export default function GameWeekManagerPage() {
     const allMatchPlayers = [...form.teamAPlayers, ...form.teamBPlayers];
     const availablePlayers = players.filter((p) => !form.teamAPlayers.includes(p.id) && !form.teamBPlayers.includes(p.id));
 
+    // Auto-computed values
+    const autoTeamAScore = form.teamAGoals.filter((g) => g.scorerId).length;
+    const autoTeamBScore = form.teamBGoals.filter((g) => g.scorerId).length;
+
+    const teamACS = computeTeamStats(form.teamAPlayers, form.playerPerf);
+    const teamBCS = computeTeamStats(form.teamBPlayers, form.playerPerf);
+    const totalAct = teamACS.shots + teamACS.skillMovesTotal + teamBCS.shots + teamBCS.skillMovesTotal;
+    const autoPossA = totalAct > 0 ? Math.round(Math.max(20, Math.min(80, (teamACS.shots + teamACS.skillMovesTotal) / totalAct * 100))) : 50;
+    const autoPossB = 100 - autoPossA;
+
+    const PERF_FIELDS = [
+      { key: 'tackles', label: 'Tkl' },
+      { key: 'interceptions', label: 'Int' },
+      { key: 'blocks', label: 'Blk' },
+      { key: 'saves', label: 'Svs' },
+      { key: 'shotsOnTarget', label: 'SoT' },
+      { key: 'shotsOffTarget', label: 'SoF' },
+      { key: 'skillMoves', label: 'Skl' },
+      { key: 'bigChancesMissed', label: 'BCM' },
+      { key: 'fouls', label: 'Foul' },
+      { key: 'goalsConceded', label: 'GC', readOnly: true },
+      { key: 'goalsConcededAsGK', label: 'GCK' },
+    ];
+
     return (
       <div>
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -396,9 +500,23 @@ export default function GameWeekManagerPage() {
           {/* Score & Goals */}
           <div className="gpl-card p-5 sm:p-6">
             <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-4">Score & Goals</h3>
+
+            {/* Auto-computed scores */}
             <div className="grid grid-cols-2 gap-4 mb-5">
-              <div><label className="text-xs text-red-400 block mb-1 font-medium">Team A Score</label><input type="number" min={0} value={form.teamAScore} onChange={(e) => setF('teamAScore', e.target.value)} className="w-full px-4 py-2.5 rounded-xl gpl-input text-sm" /></div>
-              <div><label className="text-xs text-blue-400 block mb-1 font-medium">Team B Score</label><input type="number" min={0} value={form.teamBScore} onChange={(e) => setF('teamBScore', e.target.value)} className="w-full px-4 py-2.5 rounded-xl gpl-input text-sm" /></div>
+              <div>
+                <label className="text-xs text-red-400 block mb-1 font-medium">Team A Score</label>
+                <div className="w-full px-4 py-2.5 rounded-xl gpl-input text-sm font-bold text-red-400 select-none">
+                  {autoTeamAScore}
+                </div>
+                <p className="text-[10px] text-gpl-muted mt-1">Auto-calculated from goals below</p>
+              </div>
+              <div>
+                <label className="text-xs text-blue-400 block mb-1 font-medium">Team B Score</label>
+                <div className="w-full px-4 py-2.5 rounded-xl gpl-input text-sm font-bold text-blue-400 select-none">
+                  {autoTeamBScore}
+                </div>
+                <p className="text-[10px] text-gpl-muted mt-1">Auto-calculated from goals below</p>
+              </div>
             </div>
 
             {[['teamAGoals', 'teamAPlayers', '#ef4444', 'Team A Goals'], ['teamBGoals', 'teamBPlayers', '#3b82f6', 'Team B Goals']].map(([goalKey, teamKey, color, label]) => (
@@ -426,11 +544,12 @@ export default function GameWeekManagerPage() {
             ))}
           </div>
 
-          {/* Player Stats */}
+          {/* Player Performance */}
           {allMatchPlayers.length > 0 && (
             <div className="gpl-card p-5 sm:p-6">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-4">Player Performance</h3>
-              {[['teamAPlayers', '#ef4444', 'Team A'], ['teamBPlayers', '#3b82f6', 'Team B']].map(([teamKey, color, label]) => (
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-1">Player Performance</h3>
+              <p className="text-[10px] text-gpl-muted mb-4">SoT = Shots on Target · SoF = Shots off Target · Skl = Skill Moves · BCM = Big Chances Missed · GC = Goals Conceded (auto) · GCK = Goals Conceded as GK</p>
+              {[['teamAPlayers', '#ef4444', 'Team A', autoTeamBScore], ['teamBPlayers', '#3b82f6', 'Team B', autoTeamAScore]].map(([teamKey, color, label, teamGC]) => (
                 form[teamKey].length > 0 && (
                   <div key={teamKey} className="mb-5">
                     <h4 className="text-xs font-bold mb-2" style={{ color }}>{label}</h4>
@@ -439,14 +558,9 @@ export default function GameWeekManagerPage() {
                         <thead>
                           <tr className="text-gpl-muted">
                             <th className="text-left font-medium pb-2 pr-3">Player</th>
-                            <th className="font-medium pb-2 px-1 text-center">Tkl</th>
-                            <th className="font-medium pb-2 px-1 text-center">Int</th>
-                            <th className="font-medium pb-2 px-1 text-center">Blk</th>
-                            <th className="font-medium pb-2 px-1 text-center">Svs</th>
-                            <th className="font-medium pb-2 px-1 text-center">Sht</th>
-                            <th className="font-medium pb-2 px-1 text-center">SoT</th>
-                            <th className="font-medium pb-2 px-1 text-center">Foul</th>
-                            <th className="font-medium pb-2 px-1 text-center">GC</th>
+                            {PERF_FIELDS.map(({ key, label }) => (
+                              <th key={key} className="font-medium pb-2 px-1 text-center">{label}</th>
+                            ))}
                             <th className="font-medium pb-2 px-1 text-center">YC</th>
                             <th className="font-medium pb-2 px-1 text-center">RC</th>
                           </tr>
@@ -459,10 +573,14 @@ export default function GameWeekManagerPage() {
                             return (
                               <tr key={pid} className="border-t border-gpl-border">
                                 <td className="py-1.5 pr-3 font-medium text-gpl truncate max-w-25">{pl.name.split(' ').pop()}</td>
-                                {['tackles', 'interceptions', 'blocks', 'saves', 'shots', 'shotsOnTarget', 'fouls', 'goalsConceded'].map((f) => (
-                                  <td key={f} className="py-1.5 px-1">
-                                    <input type="number" min={0} max={30} value={perf[f] || 0} onChange={(e) => updatePerf(pid, f, e.target.value)}
-                                      className="w-9 px-1 py-1 rounded-lg gpl-input text-center text-xs" />
+                                {PERF_FIELDS.map(({ key, readOnly }) => (
+                                  <td key={key} className="py-1.5 px-1">
+                                    {readOnly ? (
+                                      <div className="w-9 px-1 py-1 rounded-lg bg-gpl-inset text-center text-xs text-gpl-muted select-none">{teamGC}</div>
+                                    ) : (
+                                      <input type="number" min={0} max={30} value={perf[key] ?? 0} onChange={(e) => updatePerf(pid, key, e.target.value)}
+                                        className="w-9 px-1 py-1 rounded-lg gpl-input text-center text-xs" />
+                                    )}
                                   </td>
                                 ))}
                                 {['yellowCard', 'redCard'].map((f) => (
@@ -497,22 +615,40 @@ export default function GameWeekManagerPage() {
 
           {/* Match Stats */}
           <div className="gpl-card p-5 sm:p-6">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-4">Match Stats</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-1">Match Stats</h3>
+            <p className="text-[10px] text-gpl-muted mb-4">Shots, possession and fouls are auto-calculated from player data. Only corners need manual entry.</p>
             <div className="grid grid-cols-2 gap-x-8 gap-y-3">
-              {[['Shots', 'shots'], ['Shots on Target', 'shotsOnTarget'], ['Possession %', 'possession'], ['Corners', 'corners'], ['Fouls', 'fouls']].map(([label, key]) => (
-                <div key={key} className="contents">
+              {/* Auto-computed rows */}
+              {[
+                { label: 'Shots', valA: teamACS.shots, valB: teamBCS.shots },
+                { label: 'Shots on Target', valA: teamACS.shotsOnTarget, valB: teamBCS.shotsOnTarget },
+                { label: 'Possession %', valA: autoPossA, valB: autoPossB },
+                { label: 'Fouls', valA: teamACS.fouls, valB: teamBCS.fouls },
+              ].map(({ label, valA, valB }) => (
+                <div key={label} className="contents">
                   <div className="flex items-center gap-2">
-                    <input type="number" min={0} max={100} value={form.teamAStats[key]} onChange={(e) => setStat('teamAStats', key, +e.target.value)}
-                      className="w-16 px-2 py-1.5 rounded-lg gpl-input text-xs text-center" />
+                    <div className="w-16 px-2 py-1.5 rounded-lg gpl-input text-xs text-center font-bold text-red-400">{valA}</div>
                     <span className="text-xs text-gpl-muted flex-1 text-center">{label}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-gpl-muted flex-1 text-center">{label}</span>
-                    <input type="number" min={0} max={100} value={form.teamBStats[key]} onChange={(e) => setStat('teamBStats', key, +e.target.value)}
-                      className="w-16 px-2 py-1.5 rounded-lg gpl-input text-xs text-center" />
+                    <div className="w-16 px-2 py-1.5 rounded-lg gpl-input text-xs text-center font-bold text-blue-400">{valB}</div>
                   </div>
                 </div>
               ))}
+              {/* Corners — manual entry */}
+              <div className="contents">
+                <div className="flex items-center gap-2">
+                  <input type="number" min={0} max={30} value={form.teamAStats.corners} onChange={(e) => setStat('teamAStats', 'corners', +e.target.value)}
+                    className="w-16 px-2 py-1.5 rounded-lg gpl-input text-xs text-center" />
+                  <span className="text-xs text-gpl-muted flex-1 text-center">Corners</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gpl-muted flex-1 text-center">Corners</span>
+                  <input type="number" min={0} max={30} value={form.teamBStats.corners} onChange={(e) => setStat('teamBStats', 'corners', +e.target.value)}
+                    className="w-16 px-2 py-1.5 rounded-lg gpl-input text-xs text-center" />
+                </div>
+              </div>
             </div>
             <div className="flex justify-between text-xs text-gpl-muted mt-3 px-1">
               <span className="text-red-400 font-bold">Team A</span>

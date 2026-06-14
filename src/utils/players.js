@@ -32,66 +32,55 @@ export function getRatingLabel(r) {
   return 'DEVELOPING';
 }
 
-// Inverse-expectation weight matrix — stat keys map to per-position weights.
-// Our position codes: GK, DF, MF, FW (matching the rest of the codebase).
+// Per-position weight map — organised by position then stat (inverse-expectation principle).
+// Rarer actions for a position yield a larger rating impact.
 const MATCH_WEIGHTS = {
-  goals:          { GK:  1.10, DF:  0.90, MF:  0.80, FW:  0.75 },
-  assists:        { GK:  0.55, DF:  0.60, MF:  0.50, FW:  0.45 },
-  saves:          { GK:  0.40, DF:  0.40, MF:  0.40, FW:  0.40 }, // flat — sunday league GK rotation
-  shotsOnTarget:  { GK:  0.30, DF:  0.25, MF:  0.20, FW:  0.18 },
-  blocks:         { GK:  0.25, DF:  0.30, MF:  0.20, FW:  0.10 },
-  interceptions:  { GK:  0.25, DF:  0.30, MF:  0.25, FW:  0.10 },
-  tackles:        { GK:  0.25, DF:  0.25, MF:  0.25, FW:  0.15 },
-  cleanSheet:     { GK:  0.75, DF:  0.50, MF:  0.15, FW:  0.00 },
-  goalsConceded:  { GK: -0.20, DF: -0.15, MF: -0.10, FW: -0.05 },
-  fouls:          { GK: -0.20, DF: -0.15, MF: -0.15, FW: -0.15 },
-  shotsOffTarget: { GK: -0.05, DF: -0.05, MF: -0.10, FW: -0.15 },
-  yellowCard:     { GK: -0.40, DF: -0.30, MF: -0.30, FW: -0.30 },
-  redCard:        { GK: -1.50, DF: -1.50, MF: -1.50, FW: -1.50 },
+  GK: {
+    goals:            +1.20, assists:          +0.70, shotsOnTarget:    +0.40,
+    blocks:           +0.15, interceptions:    +0.15, tackles:          +0.15,
+    cleanSheet:       +0.75, saves:            +0.40, skillMoves:       +0.20,
+    shotsOffTarget:   -0.05, bigChancesMissed: -0.03, goalsConceded:    -0.28,
+    fouls:            -0.28, yellowCard:       -0.45, redCard:          -1.50,
+  },
+  DF: {
+    goals:            +0.90, assists:          +0.60, shotsOnTarget:    +0.30,
+    blocks:           +0.20, interceptions:    +0.20, tackles:          +0.20,
+    cleanSheet:       +0.50, saves:            +0.40, skillMoves:       +0.20,
+    shotsOffTarget:   -0.08, bigChancesMissed: -0.06, goalsConceded:    -0.18,
+    fouls:            -0.20, yellowCard:       -0.35, redCard:          -1.50,
+  },
+  MF: {
+    goals:            +0.75, assists:          +0.50, shotsOnTarget:    +0.20,
+    blocks:           +0.32, interceptions:    +0.30, tackles:          +0.28,
+    cleanSheet:       +0.18, saves:            +0.40, skillMoves:       +0.20,
+    shotsOffTarget:   -0.12, bigChancesMissed: -0.15, goalsConceded:    -0.08,
+    fouls:            -0.15, yellowCard:       -0.28, redCard:          -1.50,
+  },
+  FW: {
+    goals:            +0.65, assists:          +0.45, shotsOnTarget:    +0.12,
+    blocks:           +0.50, interceptions:    +0.48, tackles:          +0.42,
+    cleanSheet:       +0.08, saves:            +0.40, skillMoves:       +0.20,
+    shotsOffTarget:   -0.18, bigChancesMissed: -0.30, goalsConceded:    -0.03,
+    fouls:            -0.10, yellowCard:       -0.22, redCard:          -1.50,
+  },
 };
 
 // candidates: [{ id, position, matchRating, matchStats, isCleanSheet }]
-// 4-step waterfall — returns the MOTM player id
+// Highest rating wins; ties broken by goals → assists → saves.
 export function getManOfTheMatch(candidates) {
   if (!candidates.length) return null;
   if (candidates.length === 1) return candidates[0].id;
 
-  const scored = candidates.map((c) => {
-    const pos = c.position;
-    const ms = c.matchStats;
-    const statMap = { ...ms, cleanSheet: c.isCleanSheet ? 1 : 0 };
-
-    // Step 2: big moments — goals weighted 2×, assists 1×
-    const bigMoments = (ms.goals || 0) * 2 + (ms.assists || 0);
-
-    // Step 3: count of distinct positive stat types this player contributed
-    const positiveTypes = Object.entries(MATCH_WEIGHTS).filter(([stat, weights]) => {
-      return (weights[pos] ?? 0) > 0 && (Number(statMap[stat]) || 0) > 0;
-    }).length;
-
-    // Step 4: sum of all positive deltas from the weight matrix
-    const positiveDeltaSum = Object.entries(MATCH_WEIGHTS).reduce((sum, [stat, weights]) => {
-      const weight = weights[pos] ?? 0;
-      const delta = Math.round(weight * (Number(statMap[stat]) || 0) * 100) / 100;
-      return delta > 0 ? sum + delta : sum;
-    }, 0);
-
-    return { ...c, bigMoments, positiveTypes, positiveDeltaSum };
-  });
-
-  scored.sort((a, b) => {
-    // Step 1: highest match rating — outright winner if gap > 0.1
-    const ratingDiff = b.matchRating - a.matchRating;
-    if (Math.abs(ratingDiff) > 0.1) return ratingDiff;
-    // Step 2: big moments (goals × 2 + assists)
-    if (b.bigMoments !== a.bigMoments) return b.bigMoments - a.bigMoments;
-    // Step 3: most distinct positive stat types
-    if (b.positiveTypes !== a.positiveTypes) return b.positiveTypes - a.positiveTypes;
-    // Step 4: highest total positive impact
-    return b.positiveDeltaSum - a.positiveDeltaSum;
-  });
-
-  return scored[0].id;
+  return candidates.reduce((best, curr) => {
+    if (curr.matchRating > best.matchRating) return curr;
+    if (curr.matchRating < best.matchRating) return best;
+    const cg = curr.matchStats?.goals ?? 0, bg = best.matchStats?.goals ?? 0;
+    if (cg !== bg) return cg > bg ? curr : best;
+    const ca = curr.matchStats?.assists ?? 0, ba = best.matchStats?.assists ?? 0;
+    if (ca !== ba) return ca > ba ? curr : best;
+    const cs = curr.matchStats?.saves ?? 0, bs = best.matchStats?.saves ?? 0;
+    return cs > bs ? curr : best;
+  }).id;
 }
 
 // Returns individual match rating on a 0–10 scale.
@@ -99,11 +88,13 @@ export function getManOfTheMatch(candidates) {
 export function calculateMatchRating(player, matchStats, isCleanSheet) {
   const {
     goals = 0, assists = 0, tackles = 0, interceptions = 0, blocks = 0,
-    saves = 0, shots = 0, shotsOnTarget = 0, fouls = 0,
+    saves = 0, shots = 0, shotsOnTarget = 0, shotsOffTarget = 0, fouls = 0,
     yellowCard = false, redCard = false, goalsConceded = 0,
+    skillMoves = 0, bigChancesMissed = 0,
   } = matchStats;
 
   const pos = player.position;
+  const weights = MATCH_WEIGHTS[pos];
   const statMap = {
     goals,
     assists,
@@ -112,19 +103,20 @@ export function calculateMatchRating(player, matchStats, isCleanSheet) {
     blocks,
     interceptions,
     tackles,
-    cleanSheet:     isCleanSheet ? 1 : 0,
+    cleanSheet:       isCleanSheet ? 1 : 0,
+    skillMoves,
     goalsConceded,
     fouls,
-    shotsOffTarget: Math.max(0, shots - shotsOnTarget),
-    yellowCard:     yellowCard ? 1 : 0,
-    redCard:        redCard ? 1 : 0,
+    shotsOffTarget:   shotsOffTarget || Math.max(0, shots - shotsOnTarget),
+    bigChancesMissed,
+    yellowCard:       yellowCard ? 1 : 0,
+    redCard:          redCard ? 1 : 0,
   };
 
   let raw = 6.0;
   for (const [stat, count] of Object.entries(statMap)) {
     if (!count) continue;
-    const weight = MATCH_WEIGHTS[stat]?.[pos] ?? 0;
-    raw += Math.round(weight * count * 100) / 100;
+    raw += Math.round((weights[stat] ?? 0) * count * 100) / 100;
   }
 
   return Math.max(0, Math.min(10, Math.round(raw * 100) / 100));
@@ -134,19 +126,21 @@ export function calculateMatchRating(player, matchStats, isCleanSheet) {
 // Scaling factor of 1.5: MOTM (~9.0) → +4.5, average (6.0) → 0, shocker (~4.0) → -3.0.
 // Clamping to card range happens at the call site via clampRating().
 const DELTA_SCALE = 1.5;
+const SMOOTHING_FACTOR = 0.35;
 
 export function calculateRatingDelta(player, matchStats, isCleanSheet) {
   const matchRating = calculateMatchRating(player, matchStats, isCleanSheet);
-  return Math.round((matchRating - 6.0) * DELTA_SCALE * 100) / 100;
+  return Math.round((matchRating - 6.0) * DELTA_SCALE * SMOOTHING_FACTOR * 100) / 100;
 }
 
 // Derives all 7 attributes from per-game rates across the season.
-// Pace and Dribbling are static at ATTR_BASE until a specific mechanic is defined.
+// Pace is static at ATTR_BASE until a specific mechanic is defined.
 export function calculateAttributes(seasonStats) {
   const {
     goals = 0, assists = 0, shots = 0, shotsOnTarget = 0,
     tackles = 0, interceptions = 0, blocks = 0, fouls = 0,
     saves = 0, goalsConceded = 0, gamesPlayed = 0,
+    skillMoves = 0, bigChancesMissed = 0,
   } = seasonStats;
 
   const gp = Math.max(gamesPlayed, 1);
@@ -156,12 +150,12 @@ export function calculateAttributes(seasonStats) {
 
   return {
     pace:       ATTR_BASE,
-    finishing:  clamp(ATTR_BASE + (goals / gp) * 5  + shotAccuracy * 8 - missRate * 4),
-    dribbling:  ATTR_BASE,
+    finishing:  clamp(ATTR_BASE + (goals / gp) * 5 + shotAccuracy * 8 - missRate * 4 - (bigChancesMissed / gp) * 2),
+    dribbling:  clamp(ATTR_BASE + (skillMoves / gp) * 3),
     passing:    clamp(ATTR_BASE + (assists / gp) * 8),
     physical:   clamp(ATTR_BASE + (tackles / gp) * 1.5 - (fouls / gp) * 2),
     defending:  clamp(ATTR_BASE + (interceptions / gp) * 1.0 + (tackles / gp) * 0.7 + (blocks / gp) * 0.5 - (fouls / gp) * 1.5),
-    gkReflexes: clamp(ATTR_BASE + (saves / gp) * 2  - (goalsConceded / gp) * 2),
+    gkReflexes: clamp(ATTR_BASE + (saves / gp) * 2 - (goalsConceded / gp) * 2),
   };
 }
 

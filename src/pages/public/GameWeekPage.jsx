@@ -38,13 +38,18 @@ function MatchReportModal({ pid, gw, players, onClose }) {
   const mr = ps.matchRating;
   const posColor = POS_COLORS[p.position];
 
+  const shotsOffTarget = ps.shotsOffTarget ?? Math.max(0, (ps.shots ?? 0) - (ps.shotsOnTarget ?? 0));
   const statRows = [
     { label: 'Goals', value: ps.goals ?? 0 },
     { label: 'Assists', value: ps.assists ?? 0 },
-    { label: 'Goals Conceded', value: ps.goalsConceded ?? 0 },
+    { label: 'Goals Conceded', value: ps.goalsConceded ?? ps.goalsConcededAsDF ?? 0 },
+    { label: 'GK Goals Conceded', value: ps.goalsConcededAsGK ?? 0 },
     { label: 'Saves', value: ps.saves ?? 0 },
     { label: 'Shots', value: ps.shots ?? 0 },
     { label: 'Shots on Target', value: ps.shotsOnTarget ?? 0 },
+    { label: 'Shots off Target', value: shotsOffTarget },
+    { label: 'Skill Moves', value: ps.skillMoves ?? 0 },
+    { label: 'Big Chances Missed', value: ps.bigChancesMissed ?? 0 },
     { label: 'Tackles', value: ps.tackles ?? 0 },
     { label: 'Interceptions', value: ps.interceptions ?? 0 },
     { label: 'Blocks', value: ps.blocks ?? 0 },

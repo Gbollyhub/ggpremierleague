@@ -52,18 +52,22 @@ function PlayerHeader({ player, posColor }) {
 const gwCompleted = (gw) => gw.status === 'completed' || gw.completed === true;
 
 function aggregateGWStats(pid, gameWeeks) {
-  const totals = { shots: 0, shotsOnTarget: 0, interceptions: 0, blocks: 0, fouls: 0, goalsConceded: 0, yellowCard: 0, redCard: 0 };
+  const totals = { shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0, fouls: 0, goalsConceded: 0, goalsConcededAsGK: 0, yellowCard: 0, redCard: 0, skillMoves: 0, bigChancesMissed: 0 };
   gameWeeks.filter(gwCompleted).forEach((gw) => {
     const ps = gw.playerStats?.[pid];
     if (!ps) return;
     totals.shots += ps.shots || 0;
     totals.shotsOnTarget += ps.shotsOnTarget || 0;
+    totals.shotsOffTarget += ps.shotsOffTarget || Math.max(0, (ps.shots || 0) - (ps.shotsOnTarget || 0));
     totals.interceptions += ps.interceptions || 0;
     totals.blocks += ps.blocks || 0;
     totals.fouls += ps.fouls || 0;
-    totals.goalsConceded += ps.goalsConceded || 0;
+    totals.goalsConceded += ps.goalsConceded || ps.goalsConcededAsDF || 0;
+    totals.goalsConcededAsGK += ps.goalsConcededAsGK || 0;
     totals.yellowCard += ps.yellowCard ? 1 : 0;
     totals.redCard += ps.redCard ? 1 : 0;
+    totals.skillMoves += ps.skillMoves || 0;
+    totals.bigChancesMissed += ps.bigChancesMissed || 0;
   });
   return totals;
 }
@@ -100,9 +104,13 @@ export default function PlayerComparePage() {
   const gwStats = [
     { key: 'shots', label: 'Shots' },
     { key: 'shotsOnTarget', label: 'Shots on Target' },
+    { key: 'shotsOffTarget', label: 'Shots off Target', isHigherBetter: false },
+    { key: 'skillMoves', label: 'Skill Moves' },
+    { key: 'bigChancesMissed', label: 'Big Chances Missed', isHigherBetter: false },
     { key: 'interceptions', label: 'Interceptions' },
     { key: 'blocks', label: 'Blocks' },
     { key: 'goalsConceded', label: 'Goals Conceded', isHigherBetter: false },
+    { key: 'goalsConcededAsGK', label: 'GK Goals Conceded', isHigherBetter: false },
     { key: 'fouls', label: 'Fouls', isHigherBetter: false },
     { key: 'yellowCard', label: 'Yellow Cards', isHigherBetter: false },
     { key: 'redCard', label: 'Red Cards', isHigherBetter: false },

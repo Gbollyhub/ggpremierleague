@@ -17,18 +17,22 @@ export default function PlayerDetailPage() {
   const winRate = useMemo(() => getPlayerWinRate(p.id, gameWeeks), [gameWeeks, p.id]);
 
   const gwStats = useMemo(() => {
-    const totals = { shots: 0, shotsOnTarget: 0, interceptions: 0, blocks: 0, fouls: 0, goalsConceded: 0, yellowCard: 0, redCard: 0 };
+    const totals = { shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0, fouls: 0, goalsConceded: 0, goalsConcededAsGK: 0, yellowCard: 0, redCard: 0, skillMoves: 0, bigChancesMissed: 0 };
     gameWeeks.filter(gwCompleted).forEach((gw) => {
       const ps = gw.playerStats?.[p.id];
       if (!ps) return;
       totals.shots += ps.shots || 0;
       totals.shotsOnTarget += ps.shotsOnTarget || 0;
+      totals.shotsOffTarget += ps.shotsOffTarget || Math.max(0, (ps.shots || 0) - (ps.shotsOnTarget || 0));
       totals.interceptions += ps.interceptions || 0;
       totals.blocks += ps.blocks || 0;
       totals.fouls += ps.fouls || 0;
-      totals.goalsConceded += ps.goalsConceded || 0;
+      totals.goalsConceded += ps.goalsConceded || ps.goalsConcededAsDF || 0;
+      totals.goalsConcededAsGK += ps.goalsConcededAsGK || 0;
       totals.yellowCard += ps.yellowCard ? 1 : 0;
       totals.redCard += ps.redCard ? 1 : 0;
+      totals.skillMoves += ps.skillMoves || 0;
+      totals.bigChancesMissed += ps.bigChancesMissed || 0;
     });
     return totals;
   }, [gameWeeks, p.id]);
@@ -45,12 +49,16 @@ export default function PlayerDetailPage() {
     { l: 'Assists', v: p.stats.assists, c: '#3b82f6' },
     { l: 'Shots', v: gwStats.shots, c: '#ec4899' },
     { l: 'Shots on Target', v: gwStats.shotsOnTarget, c: '#f97316' },
+    { l: 'Shots off Target', v: gwStats.shotsOffTarget, c: '#fb923c' },
+    { l: 'Skill Moves', v: gwStats.skillMoves, c: '#a78bfa' },
+    { l: 'Big Chances Missed', v: gwStats.bigChancesMissed, c: '#f43f5e' },
     { l: 'Clean Sheets', v: p.stats.cleanSheets, c: '#22c55e' },
     { l: 'Tackles', v: p.stats.tackles, c: '#f59e0b' },
     { l: 'Interceptions', v: gwStats.interceptions, c: '#06b6d4' },
     { l: 'Blocks', v: gwStats.blocks, c: '#8b5cf6' },
     { l: 'Saves', v: p.stats.saves, c: '#6366f1' },
     { l: 'Goals Conceded', v: gwStats.goalsConceded, c: '#f43f5e' },
+    { l: 'GK Goals Conceded', v: gwStats.goalsConcededAsGK, c: '#f43f5e' },
     { l: 'Fouls', v: gwStats.fouls, c: '#94a3b8' },
     { l: 'Yellow Cards', v: gwStats.yellowCard, c: '#eab308' },
     { l: 'Red Cards', v: gwStats.redCard, c: '#ef4444' },
