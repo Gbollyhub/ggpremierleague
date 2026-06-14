@@ -122,7 +122,7 @@ export default function GameWeekManagerPage() {
         updates: {
           baseRating: p.baseRating ?? baseRating,
           rating: clampRating(baseRating + otherDeltaSum),
-          attributes: calculateAttributes(otherTotals),
+          attributes: calculateAttributes(otherTotals, p.attributes),
           stats: {
             goals: otherTotals.goals, assists: otherTotals.assists, tackles: otherTotals.tackles,
             cleanSheets: otherTotals.cleanSheets, saves: otherTotals.saves,
@@ -377,7 +377,7 @@ export default function GameWeekManagerPage() {
         updates: {
           baseRating: p.baseRating ?? baseRating,
           rating: clampRating(baseRating + otherDeltaSum + thisGWDelta),
-          attributes: calculateAttributes(seasonTotals),
+          attributes: calculateAttributes(seasonTotals, p.attributes),
           stats: {
             goals: seasonTotals.goals,
             assists: seasonTotals.assists,

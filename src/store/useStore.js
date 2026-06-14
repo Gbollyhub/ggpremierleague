@@ -161,7 +161,7 @@ export const useStore = create((set, get) => ({
         batch.update(doc(db, 'players', p.id), {
           baseRating: base,
           rating: clampRating(base + deltaSum),
-          attributes: calculateAttributes(totals),
+          attributes: calculateAttributes(totals, p.attributes),
         });
       }
       await batch.commit();

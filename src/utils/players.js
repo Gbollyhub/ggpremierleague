@@ -133,9 +133,11 @@ export function calculateRatingDelta(player, matchStats, isCleanSheet) {
   return Math.round((matchRating - 6.0) * DELTA_SCALE * SMOOTHING_FACTOR * 100) / 100;
 }
 
-// Derives all 7 attributes from per-game rates across the season.
-// Pace is static at ATTR_BASE until a specific mechanic is defined.
-export function calculateAttributes(seasonStats) {
+// Each attribute blends 25% toward the newly calculated value from the player's current value.
+// This prevents single-game spikes and makes attributes drift gradually toward true season form.
+const ATTR_SMOOTH = 0.25;
+
+export function calculateAttributes(seasonStats, currentAttrs = {}) {
   const {
     goals = 0, assists = 0, shots = 0, shotsOnTarget = 0,
     tackles = 0, interceptions = 0, blocks = 0, fouls = 0,
@@ -146,16 +148,21 @@ export function calculateAttributes(seasonStats) {
   const gp = Math.max(gamesPlayed, 1);
   const shotAccuracy = shots > 0 ? shotsOnTarget / shots : 0;
   const missRate     = shots > 0 ? Math.max(0, shots - shotsOnTarget) / shots : 0;
-  const clamp = (v) => Math.max(MIN_RATING, Math.min(MAX_RATING, Math.round(v)));
+
+  const smooth = (key, raw) => {
+    const current = currentAttrs[key] ?? ATTR_BASE;
+    const blended = current + (raw - current) * ATTR_SMOOTH;
+    return Math.max(MIN_RATING, Math.min(MAX_RATING, Math.round(blended)));
+  };
 
   return {
     pace:       ATTR_BASE,
-    finishing:  clamp(ATTR_BASE + (goals / gp) * 5 + shotAccuracy * 8 - missRate * 4 - (bigChancesMissed / gp) * 2),
-    dribbling:  clamp(ATTR_BASE + (skillMoves / gp) * 3),
-    passing:    clamp(ATTR_BASE + (assists / gp) * 8),
-    physical:   clamp(ATTR_BASE + (tackles / gp) * 1.5 - (fouls / gp) * 2),
-    defending:  clamp(ATTR_BASE + (interceptions / gp) * 1.0 + (tackles / gp) * 0.7 + (blocks / gp) * 0.5 - (fouls / gp) * 1.5),
-    gkReflexes: clamp(ATTR_BASE + (saves / gp) * 2 - (goalsConceded / gp) * 2),
+    finishing:  smooth('finishing',  ATTR_BASE + (goals / gp) * 7 + shotAccuracy * 8 - missRate * 4 - (bigChancesMissed / gp) * 2),
+    dribbling:  smooth('dribbling',  ATTR_BASE + (skillMoves / gp) * 8),
+    passing:    smooth('passing',    ATTR_BASE + (assists / gp) * 8 + (shotsOnTarget / gp) * 1.5),
+    physical:   smooth('physical',   ATTR_BASE + (tackles / gp) * 1.5 - (fouls / gp) * 2),
+    defending:  smooth('defending',  ATTR_BASE + (interceptions / gp) * 1.0 + (tackles / gp) * 0.7 + (blocks / gp) * 0.5 - (fouls / gp) * 1.5),
+    gkReflexes: smooth('gkReflexes', ATTR_BASE + (saves / gp) * 3 - (goalsConceded / gp) * 1.5),
   };
 }
 
