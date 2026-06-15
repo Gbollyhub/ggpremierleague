@@ -141,7 +141,7 @@ export function calculateAttributes(seasonStats, currentAttrs = {}) {
   const {
     goals = 0, assists = 0, shots = 0, shotsOnTarget = 0,
     tackles = 0, interceptions = 0, blocks = 0, fouls = 0,
-    saves = 0, goalsConceded = 0, gamesPlayed = 0,
+    saves = 0, goalsConceded = 0, goalsConcededAsGK = 0, gamesPlayed = 0,
     skillMoves = 0, bigChancesMissed = 0,
   } = seasonStats;
 
@@ -161,8 +161,8 @@ export function calculateAttributes(seasonStats, currentAttrs = {}) {
     dribbling:  smooth('dribbling',  ATTR_BASE + (skillMoves / gp) * 8),
     passing:    smooth('passing',    ATTR_BASE + (assists / gp) * 8 + (shotsOnTarget / gp) * 1.5),
     physical:   smooth('physical',   ATTR_BASE + (tackles / gp) * 1.5 - (fouls / gp) * 2),
-    defending:  smooth('defending',  ATTR_BASE + (interceptions / gp) * 1.0 + (tackles / gp) * 0.7 + (blocks / gp) * 0.5 - (fouls / gp) * 1.5),
-    gkReflexes: smooth('gkReflexes', ATTR_BASE + (saves / gp) * 3 - (goalsConceded / gp) * 1.5),
+    defending:  smooth('defending',  ATTR_BASE + (interceptions / gp) * 1.0 + (tackles / gp) * 0.7 + (blocks / gp) * 0.5 - (fouls / gp) * 1.5 - (goalsConceded / gp) * 1.5),
+    gkReflexes: smooth('gkReflexes', ATTR_BASE + (saves / gp) * 3 - (goalsConcededAsGK / gp) * 1.5),
   };
 }
 

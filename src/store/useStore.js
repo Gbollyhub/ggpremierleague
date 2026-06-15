@@ -134,7 +134,7 @@ export const useStore = create((set, get) => ({
       const completed = gameWeeks.filter((gw) => gw.status === 'completed' || gw.completed === true);
       const batch = writeBatch(db);
       for (const p of players) {
-        const totals = { goals: 0, assists: 0, shots: 0, shotsOnTarget: 0, tackles: 0, interceptions: 0, blocks: 0, fouls: 0, saves: 0, goalsConceded: 0, gamesPlayed: 0, skillMoves: 0, bigChancesMissed: 0 };
+        const totals = { goals: 0, assists: 0, shots: 0, shotsOnTarget: 0, tackles: 0, interceptions: 0, blocks: 0, fouls: 0, saves: 0, goalsConceded: 0, goalsConcededAsGK: 0, gamesPlayed: 0, skillMoves: 0, bigChancesMissed: 0 };
         let deltaSum = 0;
         completed.forEach((gw) => {
           const inA = (gw.teamA?.players || []).includes(p.id);
@@ -153,6 +153,7 @@ export const useStore = create((set, get) => ({
           totals.fouls += ms.fouls || 0;
           totals.saves += ms.saves || 0;
           totals.goalsConceded += ms.goalsConceded || ms.goalsConcededAsDF || 0;
+          totals.goalsConcededAsGK += ms.goalsConcededAsGK || 0;
           totals.skillMoves += ms.skillMoves || 0;
           totals.bigChancesMissed += ms.bigChancesMissed || 0;
           totals.gamesPlayed += 1;
