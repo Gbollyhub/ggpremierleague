@@ -41,6 +41,7 @@ const MATCH_WEIGHTS = {
     cleanSheet:       +0.75, saves:            +0.40, skillMoves:       +0.20,
     shotsOffTarget:   -0.05, bigChancesMissed: -0.03, goalsConceded:    -0.25,
     fouls:            -0.15, yellowCard:       -0.25, redCard:          -1.50,
+    ownGoals:         -1.20,
   },
   DF: {
     goals:            +0.90, assists:          +0.60, shotsOnTarget:    +0.30,
@@ -48,6 +49,7 @@ const MATCH_WEIGHTS = {
     cleanSheet:       +0.50, saves:            +0.40, skillMoves:       +0.20,
     shotsOffTarget:   -0.08, bigChancesMissed: -0.06, goalsConceded:    -0.15,
     fouls:            -0.15, yellowCard:       -0.25, redCard:          -1.50,
+    ownGoals:         -1.00,
   },
   MF: {
     goals:            +0.75, assists:          +0.45, shotsOnTarget:    +0.20,
@@ -55,6 +57,7 @@ const MATCH_WEIGHTS = {
     cleanSheet:       +0.18, saves:            +0.40, skillMoves:       +0.20,
     shotsOffTarget:   -0.15, bigChancesMissed: -0.15, goalsConceded:    -0.10,
     fouls:            -0.15, yellowCard:       -0.25, redCard:          -1.50,
+    ownGoals:         -1.00,
   },
   FW: {
     goals:            +0.65, assists:          +0.45, shotsOnTarget:    +0.12,
@@ -62,6 +65,7 @@ const MATCH_WEIGHTS = {
     cleanSheet:       +0.08, saves:            +0.40, skillMoves:       +0.20,
     shotsOffTarget:   -0.18, bigChancesMissed: -0.25, goalsConceded:    -0.05,
     fouls:            -0.15, yellowCard:       -0.25, redCard:          -1.50,
+    ownGoals:         -1.00,
   },
 };
 
@@ -90,7 +94,7 @@ export function calculateMatchRating(player, matchStats, isCleanSheet) {
     goals = 0, assists = 0, tackles = 0, interceptions = 0, blocks = 0,
     saves = 0, shots = 0, shotsOnTarget = 0, shotsOffTarget = 0, fouls = 0,
     yellowCard = false, redCard = false, goalsConceded = 0,
-    skillMoves = 0, bigChancesMissed = 0,
+    skillMoves = 0, bigChancesMissed = 0, ownGoals = 0,
   } = matchStats;
 
   const pos = player.position;
@@ -111,6 +115,7 @@ export function calculateMatchRating(player, matchStats, isCleanSheet) {
     bigChancesMissed,
     yellowCard:       yellowCard ? 1 : 0,
     redCard:          redCard ? 1 : 0,
+    ownGoals,
   };
 
   let raw = 6.0;

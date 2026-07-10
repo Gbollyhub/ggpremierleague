@@ -64,11 +64,13 @@ export const useStore = create((set, get) => ({
   },
 
   // Save team sheet from Team Generator to an upcoming game week
-  updateGameWeekSheet: async (id, teamAPlayers, teamBPlayers) => {
+  updateGameWeekSheet: async (id, teamAPlayers, teamBPlayers, teamASubs = [], teamBSubs = []) => {
     try {
       await updateDoc(doc(db, 'gameWeeks', id), {
         'teamA.players': teamAPlayers,
         'teamB.players': teamBPlayers,
+        'teamA.subs': teamASubs,
+        'teamB.subs': teamBSubs,
       });
     } catch {
       get().addToast('Failed to save team sheet', 'error');

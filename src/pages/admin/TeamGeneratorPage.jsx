@@ -11,6 +11,8 @@ export default function TeamGeneratorPage() {
   const [selected, setSelected] = useState(new Set());
   const [teamA, setTeamA] = useState([]);
   const [teamB, setTeamB] = useState([]);
+  const [teamASubs, setTeamASubs] = useState(new Set());
+  const [teamBSubs, setTeamBSubs] = useState(new Set());
   const [generated, setGenerated] = useState(false);
   const [selectedGW, setSelectedGW] = useState('');
   const [saving, setSaving] = useState(false);
@@ -25,18 +27,29 @@ export default function TeamGeneratorPage() {
     if (selected.size < 4) { addToast('Select at least 4 players', 'error'); return; }
     const pool = players.filter((p) => selected.has(p.id));
     const { teamA: a, teamB: b } = generateBalancedTeams(pool);
-    setTeamA(a); setTeamB(b); setGenerated(true); addToast('Teams generated!', 'success');
+    setTeamA(a); setTeamB(b); setTeamASubs(new Set()); setTeamBSubs(new Set());
+    setGenerated(true); addToast('Teams generated!', 'success');
+  };
+
+  const toggleSub = (subsState, setSubsState, pid) => {
+    setSubsState((prev) => { const n = new Set(prev); n.has(pid) ? n.delete(pid) : n.add(pid); return n; });
   };
 
   const handleSaveSheet = async () => {
     if (!selectedGW) { addToast('Select a game week', 'error'); return; }
     setSaving(true);
-    await updateGameWeekSheet(selectedGW, teamA.map((p) => p.id), teamB.map((p) => p.id));
+    await updateGameWeekSheet(
+      selectedGW,
+      teamA.map((p) => p.id),
+      teamB.map((p) => p.id),
+      [...teamASubs],
+      [...teamBSubs],
+    );
     setSaving(false);
     addToast('Team sheet saved to game week!', 'success');
-    // Reset to default mode
     setGenerated(false);
     setTeamA([]); setTeamB([]);
+    setTeamASubs(new Set()); setTeamBSubs(new Set());
     setSelected(new Set());
     setSelectedGW('');
   };
@@ -81,22 +94,30 @@ export default function TeamGeneratorPage() {
       {generated && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            {[[teamA, '#ef4444', 'Team A'], [teamB, '#3b82f6', 'Team B']].map(([team, color, name]) => (
+            {[[teamA, '#ef4444', 'Team A', teamASubs, setTeamASubs], [teamB, '#3b82f6', 'Team B', teamBSubs, setTeamBSubs]].map(([team, color, name, subs, setSubs]) => (
               <div key={name} className="gpl-card p-6" style={{ background: `linear-gradient(160deg, ${color}10, transparent)` }}>
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between mb-1">
                   <h3 className="text-lg font-bold" style={{ color }}>{name}</h3>
-                  <span className="text-sm text-gpl-muted">Avg: <span className="font-bold text-gpl">{avgRating(team)}</span></span>
+                  <span className="text-sm text-gpl-muted">Avg: <span className="font-bold text-gpl">{avgRating(team.filter(p => !subs.has(p.id)))}</span></span>
                 </div>
+                <p className="text-[11px] text-gpl-muted mb-3">Tap a player to toggle them as a substitute</p>
                 <div className="space-y-2">
-                  {team.map((p) => (
-                    <div key={p.id} className="flex items-center gap-3 p-3 rounded-xl bg-gpl-inset">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ background: color }}>{p.rating}</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-bold text-gpl truncate">{p.name}</div>
-                        <div className="text-xs text-gpl-muted">{POSITIONS[p.position]}</div>
-                      </div>
-                    </div>
-                  ))}
+                  {team.map((p) => {
+                    const isSub = subs.has(p.id);
+                    return (
+                      <button key={p.id} onClick={() => toggleSub(subs, setSubs, p.id)}
+                        className={`w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all ${isSub ? 'bg-amber-500/10 ring-1 ring-amber-500/40 opacity-70' : 'bg-gpl-inset'}`}>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ background: isSub ? '#b45309' : color }}>{p.rating}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-bold text-gpl truncate">{p.name}</div>
+                          <div className="text-xs text-gpl-muted">{POSITIONS[p.position]}</div>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${isSub ? 'bg-amber-500/20 text-amber-500' : 'bg-gpl-border/30 text-gpl-muted'}`}>
+                          {isSub ? 'SUB' : 'START'}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ))}

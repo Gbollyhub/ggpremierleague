@@ -42,13 +42,15 @@ export default function TeamSheetsPage() {
   const gw = upcomingWithSheet || fallbackGW;
   const isUpcoming = !!upcomingWithSheet;
 
-  const getAvg = (playerIds) => {
-    const roster = playerIds.map((id) => players.find((p) => p.id === id)).filter(Boolean);
+  const getAvg = (playerIds, subs = []) => {
+    const subSet = new Set(subs);
+    const starters = playerIds.filter((id) => !subSet.has(id));
+    const roster = starters.map((id) => players.find((p) => p.id === id)).filter(Boolean);
     return roster.length ? roster.reduce((s, p) => s + p.rating, 0) / roster.length : 0;
   };
 
-  const avgA = gw ? getAvg(gw.teamA?.players || []) : 0;
-  const avgB = gw ? getAvg(gw.teamB?.players || []) : 0;
+  const avgA = gw ? getAvg(gw.teamA?.players || [], gw.teamA?.subs || []) : 0;
+  const avgB = gw ? getAvg(gw.teamB?.players || [], gw.teamB?.subs || []) : 0;
   const prob = avgA && avgB ? calculateWinProbability(avgA, avgB) : null;
 
   return (
@@ -76,12 +78,14 @@ export default function TeamSheetsPage() {
             teamColor="#ef4444"
             teamName={gwCompleted(gw) ? `Team A — ${gw.teamA.score} goal(s)` : 'Team A'}
             allPlayers={players}
+            subIds={gw.teamA?.subs || []}
           />
           <FormationDisplay
             playerIds={gw.teamB.players}
             teamColor="#3b82f6"
             teamName={gwCompleted(gw) ? `Team B — ${gw.teamB.score} goal(s)` : 'Team B'}
             allPlayers={players}
+            subIds={gw.teamB?.subs || []}
           />
         </div>
       ) : (

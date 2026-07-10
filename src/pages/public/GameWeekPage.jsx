@@ -42,6 +42,7 @@ function MatchReportModal({ pid, gw, players, onClose }) {
   const statRows = [
     { label: 'Goals', value: ps.goals ?? 0 },
     { label: 'Assists', value: ps.assists ?? 0 },
+    { label: 'Own Goals', value: ps.ownGoals ?? 0 },
     { label: 'Goals Conceded', value: ps.goalsConceded ?? ps.goalsConcededAsDF ?? 0 },
     { label: 'GK Goals Conceded', value: ps.goalsConcededAsGK ?? 0 },
     { label: 'Saves', value: ps.saves ?? 0 },
@@ -190,7 +191,8 @@ export default function GameWeekPage() {
                 {teamAGoals.map((g, i) => (
                   <div key={i} className="text-right">
                     <span className="text-[14px] font-semibold text-gpl">{getPlayerName(g.scorerId)}</span>
-                    {g.assisterId && <div className="text-xs text-gpl-muted">(ast. {getPlayerName(g.assisterId)})</div>}
+                    {g.ownGoal && <span className="text-amber-500 text-xs ml-1 font-bold">(OG)</span>}
+                    {g.assisterId && !g.ownGoal && <div className="text-xs text-gpl-muted">(ast. {getPlayerName(g.assisterId)})</div>}
                   </div>
                 ))}
               </div>
@@ -212,7 +214,8 @@ export default function GameWeekPage() {
                 {teamBGoals.map((g, i) => (
                   <div key={i}>
                     <span className="text-[14px] font-semibold text-gpl">{getPlayerName(g.scorerId)}</span>
-                    {g.assisterId && <div className="text-xs text-gpl-muted">(ast. {getPlayerName(g.assisterId)})</div>}
+                    {g.ownGoal && <span className="text-amber-500 text-xs ml-1 font-bold">(OG)</span>}
+                    {g.assisterId && !g.ownGoal && <div className="text-xs text-gpl-muted">(ast. {getPlayerName(g.assisterId)})</div>}
                   </div>
                 ))}
               </div>
@@ -277,6 +280,8 @@ export default function GameWeekPage() {
                   allPlayers={players}
                   matchRatings={matchRatings}
                   onPlayerClick={setMatchReportPid}
+                  subIds={gw.teamA?.subs || []}
+                  hideRating
                 />
                 <FormationDisplay
                   playerIds={gw.teamB.players}
@@ -285,6 +290,8 @@ export default function GameWeekPage() {
                   allPlayers={players}
                   matchRatings={matchRatings}
                   onPlayerClick={setMatchReportPid}
+                  subIds={gw.teamB?.subs || []}
+                  hideRating
                 />
               </div>
             </div>

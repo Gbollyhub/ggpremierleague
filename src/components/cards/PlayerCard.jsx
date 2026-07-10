@@ -4,6 +4,7 @@ import { IconStar } from '@/components/ui/Icons';
 
 export default function PlayerCard({ player, onClick }) {
   const posColor = POS_COLORS[player.position];
+  const SPECIAL_PLAYER_ID = 'p1777923767043';
 
   return (
     <div
@@ -23,7 +24,7 @@ export default function PlayerCard({ player, onClick }) {
           {/* Rating & Position */}
           <div className="flex items-start justify-between mb-4">
             <div>
-              <div className="text-4xl font-black text-gpl">{player.rating}</div>
+              <div className="text-4xl font-black text-gpl">{SPECIAL_PLAYER_ID === player.id ? 100 : player.rating}</div>
               <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: posColor }}>
                 {player.position}
               </div>

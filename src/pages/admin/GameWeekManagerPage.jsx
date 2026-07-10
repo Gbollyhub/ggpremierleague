@@ -16,6 +16,7 @@ const EMPTY_PERF = () => ({
 const EMPTY_STATS = () => ({ corners: 0 });
 const EMPTY_FORM = () => ({
   teamAPlayers: [], teamBPlayers: [],
+  teamASubs: [], teamBSubs: [],
   teamAGoals: [], teamBGoals: [],
   playerPerf: {},
   teamAStats: EMPTY_STATS(), teamBStats: EMPTY_STATS(),
@@ -53,6 +54,10 @@ export default function GameWeekManagerPage() {
   // ── Helpers ───────────────────────────────────────────────────────────────
   const setF = (key, val) => setForm((f) => ({ ...f, [key]: val }));
   const setStat = (team, key, val) => setForm((f) => ({ ...f, [team]: { ...f[team], [key]: val } }));
+  const toggleGoalOG = (goalKey, idx) => setForm((f) => ({
+    ...f,
+    [goalKey]: f[goalKey].map((g, i) => i === idx ? { ...g, ownGoal: !g.ownGoal, assisterId: '' } : g),
+  }));
   const updatePerf = (pid, field, val) => setForm((f) => ({
     ...f, playerPerf: { ...f.playerPerf, [pid]: { ...f.playerPerf[pid], [field]: val } },
   }));
@@ -62,12 +67,17 @@ export default function GameWeekManagerPage() {
   };
   const removeFromTeam = (teamKey, pid) => {
     const other = teamKey === 'teamAPlayers' ? 'teamBPlayers' : 'teamAPlayers';
+    const subsKey = teamKey === 'teamAPlayers' ? 'teamASubs' : 'teamBSubs';
     setForm((f) => {
       const perf = { ...f.playerPerf };
       if (!f[other].includes(pid)) delete perf[pid];
-      return { ...f, [teamKey]: f[teamKey].filter((id) => id !== pid), playerPerf: perf };
+      return { ...f, [teamKey]: f[teamKey].filter((id) => id !== pid), [subsKey]: f[subsKey].filter((id) => id !== pid), playerPerf: perf };
     });
   };
+  const toggleSub = (subsKey, pid) => setForm((f) => {
+    const subs = f[subsKey];
+    return { ...f, [subsKey]: subs.includes(pid) ? subs.filter((id) => id !== pid) : [...subs, pid] };
+  });
   const closeRecord = () => { setMode('idle'); setEditingGW(null); setForm(EMPTY_FORM()); };
 
   // ── Delete completed GW + reverse player contributions ───────────────────
@@ -162,7 +172,7 @@ export default function GameWeekManagerPage() {
     const playerPerf = {};
     all.forEach((pid) => { playerPerf[pid] = EMPTY_PERF(); });
     setEditingGW(gw);
-    setForm({ ...EMPTY_FORM(), teamAPlayers: gw.teamA?.players || [], teamBPlayers: gw.teamB?.players || [], playerPerf });
+    setForm({ ...EMPTY_FORM(), teamAPlayers: gw.teamA?.players || [], teamBPlayers: gw.teamB?.players || [], teamASubs: gw.teamA?.subs || [], teamBSubs: gw.teamB?.subs || [], playerPerf });
     setMode('record');
   };
 
@@ -189,7 +199,7 @@ export default function GameWeekManagerPage() {
     const teamBGoals = [];
     if (gw.goals?.length) {
       gw.goals.forEach((g) => {
-        const entry = { scorerId: g.scorerId || '', assisterId: g.assisterId || '', minute: g.minute || 0 };
+        const entry = { scorerId: g.scorerId || '', assisterId: g.assisterId || '', minute: g.minute || 0, ownGoal: g.ownGoal || false };
         (g.team === 'A' ? teamAGoals : teamBGoals).push(entry);
       });
     } else {
@@ -203,6 +213,7 @@ export default function GameWeekManagerPage() {
     setEditingGW(gw);
     setForm({
       teamAPlayers: gw.teamA?.players || [], teamBPlayers: gw.teamB?.players || [],
+      teamASubs: gw.teamA?.subs || [], teamBSubs: gw.teamB?.subs || [],
       teamAGoals, teamBGoals, playerPerf,
       teamAStats: { corners: gw.teamA?.corners || 0 },
       teamBStats: { corners: gw.teamB?.corners || 0 },
@@ -231,8 +242,8 @@ export default function GameWeekManagerPage() {
       ...teamBGoals.filter((g) => g.scorerId).map((g) => ({ ...g, team: 'B' })),
     ];
     const events = goals.flatMap((g) => [
-      { playerId: g.scorerId, type: 'goal', minute: g.minute },
-      ...(g.assisterId ? [{ playerId: g.assisterId, type: 'assist', minute: g.minute }] : []),
+      { playerId: g.scorerId, type: g.ownGoal ? 'ownGoal' : 'goal', minute: g.minute },
+      ...(!g.ownGoal && g.assisterId ? [{ playerId: g.assisterId, type: 'assist', minute: g.minute }] : []),
     ]);
 
     const allMatchPlayers = [...teamAPlayers, ...teamBPlayers];
@@ -244,14 +255,19 @@ export default function GameWeekManagerPage() {
       if (!p) return;
       const inA = teamAPlayers.includes(pid);
       const myGoals = inA ? teamAGoals : teamBGoals;
-      const g = myGoals.filter((x) => x.scorerId === pid).length;
-      const a = goals.filter((x) => x.assisterId === pid).length;
+      // Normal goals: own team's goals where this player is scorer and NOT an own goal
+      const g = myGoals.filter((x) => x.scorerId === pid && !x.ownGoal).length;
+      // Assists: only on normal goals
+      const a = goals.filter((x) => x.assisterId === pid && !x.ownGoal).length;
+      // Own goals: appearing as scorer in the opposing team's goal list with ownGoal flag
+      const opposingGoals = inA ? teamBGoals : teamAGoals;
+      const og = opposingGoals.filter((x) => x.ownGoal && x.scorerId === pid).length;
       const perf = playerPerf[pid] || EMPTY_PERF();
       const isCS = (inA && +teamBScore === 0) || (!inA && +teamAScore === 0);
       const sot = +perf.shotsOnTarget || 0;
       const sof = +perf.shotsOffTarget || 0;
       const ms = {
-        goals: g, assists: a,
+        goals: g, assists: a, ownGoals: og,
         tackles: +perf.tackles || 0, interceptions: +perf.interceptions || 0,
         saves: +perf.saves || 0, blocks: +perf.blocks || 0,
         shotsOnTarget: sot, shotsOffTarget: sof, shots: sot + sof,
@@ -272,9 +288,10 @@ export default function GameWeekManagerPage() {
     }).filter(Boolean);
     const motm = getManOfTheMatch(motmCandidates);
 
+    const { teamASubs, teamBSubs } = form;
     const gwUpdates = {
-      teamA: { name: 'Team A', players: teamAPlayers, score: teamAScore, shots: teamACS.shots, shotsOnTarget: teamACS.shotsOnTarget, possession: possA, fouls: teamACS.fouls, corners: teamAStats.corners || 0 },
-      teamB: { name: 'Team B', players: teamBPlayers, score: teamBScore, shots: teamBCS.shots, shotsOnTarget: teamBCS.shotsOnTarget, possession: 100 - possA, fouls: teamBCS.fouls, corners: teamBStats.corners || 0 },
+      teamA: { name: 'Team A', players: teamAPlayers, subs: teamASubs, score: teamAScore, shots: teamACS.shots, shotsOnTarget: teamACS.shotsOnTarget, possession: possA, fouls: teamACS.fouls, corners: teamAStats.corners || 0 },
+      teamB: { name: 'Team B', players: teamBPlayers, subs: teamBSubs, score: teamBScore, shots: teamBCS.shots, shotsOnTarget: teamBCS.shotsOnTarget, possession: 100 - possA, fouls: teamBCS.fouls, corners: teamBStats.corners || 0 },
       goals, events, playerStats, motm,
       matchLink: form.matchLink.trim() || null,
     };
@@ -475,7 +492,7 @@ export default function GameWeekManagerPage() {
           <div className="gpl-card p-5 sm:p-6">
             <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-4">Teams</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {[['Team A', 'teamAPlayers', '#ef4444'], ['Team B', 'teamBPlayers', '#3b82f6']].map(([name, key, color]) => (
+              {[['Team A', 'teamAPlayers', 'teamASubs', '#ef4444'], ['Team B', 'teamBPlayers', 'teamBSubs', '#3b82f6']].map(([name, key, subsKey, color]) => (
                 <div key={key}>
                   <h4 className="text-sm font-bold mb-2" style={{ color }}>{name}</h4>
                   <select className="w-full px-4 py-2.5 rounded-xl gpl-input text-sm mb-2" value=""
@@ -484,13 +501,21 @@ export default function GameWeekManagerPage() {
                     {availablePlayers.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.position})</option>)}
                   </select>
                   <div className="space-y-1">
-                    {form[key].map((pid) => { const pl = players.find((p) => p.id === pid); return pl ? (
-                      <div key={pid} className="flex items-center gap-2 p-2 rounded-lg bg-gpl-inset text-sm">
-                        <span className="font-medium text-gpl flex-1 truncate">{pl.name}</span>
-                        <span className="text-xs text-gpl-muted">{pl.position}</span>
-                        <button onClick={() => removeFromTeam(key, pid)} className="text-red-400"><IconX className="w-3.5 h-3.5" /></button>
-                      </div>
-                    ) : null; })}
+                    {form[key].map((pid) => {
+                      const pl = players.find((p) => p.id === pid);
+                      const isSub = form[subsKey].includes(pid);
+                      return pl ? (
+                        <div key={pid} className={`flex items-center gap-2 p-2 rounded-lg text-sm ${isSub ? 'bg-amber-500/10' : 'bg-gpl-inset'}`}>
+                          <span className="font-medium text-gpl flex-1 truncate">{pl.name}</span>
+                          <span className="text-xs text-gpl-muted">{pl.position}</span>
+                          <button onClick={() => toggleSub(subsKey, pid)}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors ${isSub ? 'bg-amber-500/20 text-amber-500' : 'bg-gpl-border/30 text-gpl-muted hover:text-gpl'}`}>
+                            {isSub ? 'SUB' : 'START'}
+                          </button>
+                          <button onClick={() => removeFromTeam(key, pid)} className="text-red-400"><IconX className="w-3.5 h-3.5" /></button>
+                        </div>
+                      ) : null;
+                    })}
                   </div>
                 </div>
               ))}
@@ -519,25 +544,47 @@ export default function GameWeekManagerPage() {
               </div>
             </div>
 
-            {[['teamAGoals', 'teamAPlayers', '#ef4444', 'Team A Goals'], ['teamBGoals', 'teamBPlayers', '#3b82f6', 'Team B Goals']].map(([goalKey, teamKey, color, label]) => (
+            {[['teamAGoals', 'teamAPlayers', 'teamBPlayers', '#ef4444', 'Team A Goals'], ['teamBGoals', 'teamBPlayers', 'teamAPlayers', '#3b82f6', 'Team B Goals']].map(([goalKey, teamKey, opposingKey, color, label]) => (
               <div key={goalKey} className="mb-4">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-sm font-bold" style={{ color }}>{label}</h4>
-                  <button onClick={() => setF(goalKey, [...form[goalKey], { scorerId: '', assisterId: '', minute: 0 }])}
+                  <button onClick={() => setF(goalKey, [...form[goalKey], { scorerId: '', assisterId: '', minute: 0, ownGoal: false }])}
                     className="text-xs px-3 py-1.5 rounded-lg font-medium" style={{ background: `${color}15`, color }}>+ Add Goal</button>
                 </div>
                 {form[goalKey].map((g, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_1fr_64px_32px] gap-2 mb-2 items-center">
-                    <select value={g.scorerId} onChange={(e) => setF(goalKey, form[goalKey].map((x, j) => j === i ? { ...x, scorerId: e.target.value } : x))} className="px-3 py-2 rounded-xl gpl-input text-xs">
-                      <option value="">Scorer...</option>
-                      {form[teamKey].map((pid) => { const pl = players.find((p) => p.id === pid); return pl ? <option key={pid} value={pid}>{pl.name}</option> : null; })}
+                  <div key={i} className="flex gap-2 mb-2 items-center flex-wrap">
+                    <button
+                      onClick={() => toggleGoalOG(goalKey, i)}
+                      className={`shrink-0 text-[10px] font-bold px-2 py-1.5 rounded-lg transition-colors ${g.ownGoal ? 'bg-amber-500/20 text-amber-500 ring-1 ring-amber-500/40' : 'bg-gpl-inset text-gpl-muted hover:text-gpl'}`}
+                      title="Toggle own goal"
+                    >
+                      OG
+                    </button>
+                    <select
+                      value={g.scorerId}
+                      onChange={(e) => setF(goalKey, form[goalKey].map((x, j) => j === i ? { ...x, scorerId: e.target.value } : x))}
+                      className="flex-1 min-w-28 px-3 py-2 rounded-xl gpl-input text-xs"
+                    >
+                      <option value="">{g.ownGoal ? 'OG scorer (opp)...' : 'Scorer...'}</option>
+                      {(g.ownGoal ? form[opposingKey] : form[teamKey]).map((pid) => {
+                        const pl = players.find((p) => p.id === pid);
+                        return pl ? <option key={pid} value={pid}>{pl.name}</option> : null;
+                      })}
                     </select>
-                    <select value={g.assisterId} onChange={(e) => setF(goalKey, form[goalKey].map((x, j) => j === i ? { ...x, assisterId: e.target.value } : x))} className="px-3 py-2 rounded-xl gpl-input text-xs">
-                      <option value="">Assist (opt)...</option>
-                      {allMatchPlayers.map((pid) => { const pl = players.find((p) => p.id === pid); return pl ? <option key={pid} value={pid}>{pl.name}</option> : null; })}
-                    </select>
-                    <input type="number" placeholder="Min" min={0} max={120} value={g.minute} onChange={(e) => setF(goalKey, form[goalKey].map((x, j) => j === i ? { ...x, minute: +e.target.value } : x))} className="px-3 py-2 rounded-xl gpl-input text-xs" />
-                    <button onClick={() => setF(goalKey, form[goalKey].filter((_, j) => j !== i))} className="text-red-400 flex items-center justify-center"><IconX className="w-4 h-4" /></button>
+                    {!g.ownGoal && (
+                      <select
+                        value={g.assisterId}
+                        onChange={(e) => setF(goalKey, form[goalKey].map((x, j) => j === i ? { ...x, assisterId: e.target.value } : x))}
+                        className="flex-1 min-w-28 px-3 py-2 rounded-xl gpl-input text-xs"
+                      >
+                        <option value="">Assist (opt)...</option>
+                        {allMatchPlayers.map((pid) => { const pl = players.find((p) => p.id === pid); return pl ? <option key={pid} value={pid}>{pl.name}</option> : null; })}
+                      </select>
+                    )}
+                    <input type="number" placeholder="Min" min={0} max={120} value={g.minute}
+                      onChange={(e) => setF(goalKey, form[goalKey].map((x, j) => j === i ? { ...x, minute: +e.target.value } : x))}
+                      className="w-16 shrink-0 px-3 py-2 rounded-xl gpl-input text-xs" />
+                    <button onClick={() => setF(goalKey, form[goalKey].filter((_, j) => j !== i))} className="text-red-400 shrink-0 flex items-center justify-center"><IconX className="w-4 h-4" /></button>
                   </div>
                 ))}
               </div>
