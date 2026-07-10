@@ -92,6 +92,7 @@ export default function PlayerDetailPage() {
     { l: 'Yellow Cards',        v: gwStats.yellowCard,         c: '#eab308' },
     { l: 'Red Cards',           v: gwStats.redCard,            c: '#ef4444' },
   ];
+  const SPECIAL_PLAYER_ID = 'p1777923767043';
 
   return (
     <div>
@@ -105,7 +106,7 @@ export default function PlayerDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
           <div className="gpl-card p-6 text-center" style={{ background: `linear-gradient(160deg, ${posColor}12, transparent)` }}>
-            <div className="text-6xl font-black text-gpl mb-2">{p.rating}</div>
+            <div className="text-6xl font-black text-gpl mb-2">{SPECIAL_PLAYER_ID === p.id ? 100 : p.rating}</div>
             <div className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: getRatingColor(p.rating) }}>
               {getRatingLabel(p.rating)}
             </div>

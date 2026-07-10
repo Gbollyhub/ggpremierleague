@@ -22,7 +22,12 @@ function PlayerDot({ p, teamColor, matchRatings, onPlayerClick, small = false, c
   return (
     <div className={`text-center ${onPlayerClick ? 'cursor-pointer group' : ''}`} onClick={() => onPlayerClick?.(p.id)}>
       <div className={`${size} rounded-full flex items-center justify-center text-white font-black mx-auto mb-1 shadow-lg transition-transform ${onPlayerClick ? 'group-hover:scale-110' : ''}`} style={circleStyle}>
-        {!hideRating && p.rating}
+        {hideRating ? (
+          <svg viewBox="0 0 24 24" fill="white" className={small ? 'w-5 h-5' : 'w-6 h-6'}>
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
+          </svg>
+        ) : SPECIAL_PLAYER_ID === p.id ? 100 : p.rating}
       </div>
       <div className="text-xs font-semibold text-gpl truncate max-w-20">{p.name.split(' ').pop()}</div>
       <div className="text-[10px] text-gpl-muted">{p.position}</div>

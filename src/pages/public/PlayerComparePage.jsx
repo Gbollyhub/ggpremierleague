@@ -4,6 +4,8 @@ import { POS_COLORS, POSITIONS } from '@/data/constants';
 import { getRatingColor, getRatingLabel, getPlayerWinRate } from '@/utils/players';
 import { ATTR_LABELS } from '@/data/constants';
 
+const SPECIAL_PLAYER_ID = 'p1777923767043';
+
 function win(a, b) {
   if (a > b) return 'a';
   if (b > a) return 'b';
@@ -30,7 +32,7 @@ function CompareRow({ label, valA, valB, suffix = '', isHigherBetter = true }) {
 function PlayerHeader({ player, posColor }) {
   return (
     <div className="text-center p-5 rounded-2xl" style={{ background: `linear-gradient(160deg, ${posColor}18, transparent)` }}>
-      <div className="text-5xl font-black mb-1" style={{ color: posColor }}>{player.rating}</div>
+      <div className="text-5xl font-black mb-1" style={{ color: posColor }}>{ SPECIAL_PLAYER_ID === player.id ? 100 : player.rating}</div>
       <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: getRatingColor(player.rating) }}>
         {getRatingLabel(player.rating)}
       </div>
@@ -131,7 +133,7 @@ export default function PlayerComparePage() {
             className="w-full px-4 py-2.5 rounded-xl gpl-input text-sm">
             <option value="">Select player...</option>
             {players.filter((p) => p.id !== idB).map((p) => (
-              <option key={p.id} value={p.id}>{p.name} ({p.position} — {p.rating})</option>
+              <option key={p.id} value={p.id}>{p.name} ({p.position} — { SPECIAL_PLAYER_ID === p.id ? 100 : p.rating})</option>
             ))}
           </select>
         </div>
@@ -141,7 +143,7 @@ export default function PlayerComparePage() {
             className="w-full px-4 py-2.5 rounded-xl gpl-input text-sm">
             <option value="">Select player...</option>
             {players.filter((p) => p.id !== idA).map((p) => (
-              <option key={p.id} value={p.id}>{p.name} ({p.position} — {p.rating})</option>
+              <option key={p.id} value={p.id}>{p.name} ({p.position} — { SPECIAL_PLAYER_ID === p.id ? 100 : p.rating})</option>
             ))}
           </select>
         </div>
@@ -158,7 +160,7 @@ export default function PlayerComparePage() {
           {/* Overall rating comparison */}
           <div className="gpl-card p-5">
             <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-3 text-center">Overall</h3>
-            <CompareRow label="Rating" valA={pA.rating} valB={pB.rating} />
+            <CompareRow label="Rating" valA={SPECIAL_PLAYER_ID === pA.id ? 100 : pA.rating} valB={SPECIAL_PLAYER_ID === pB.id ? 100 : pB.rating} />
             <CompareRow label="Win Rate" valA={winRateA} valB={winRateB} suffix="%" />
           </div>
 
