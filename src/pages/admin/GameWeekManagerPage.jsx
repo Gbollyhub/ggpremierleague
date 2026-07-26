@@ -8,6 +8,7 @@ const gwCompleted = (gw) => gw.status === 'completed' || gw.completed === true;
 const EMPTY_PERF = () => ({
   tackles: 0, interceptions: 0, saves: 0, blocks: 0,
   shotsOnTarget: 0, shotsOffTarget: 0,
+  keyPasses: 0, sprints: 0,
   skillMoves: 0, bigChancesMissed: 0,
   fouls: 0, goalsConceded: 0, goalsConcededAsGK: 0,
   yellowCard: false, redCard: false,
@@ -95,6 +96,7 @@ export default function GameWeekManagerPage() {
         goals: 0, assists: 0, tackles: 0, cleanSheets: 0, saves: 0, gamesPlayed: 0, motm: 0,
         shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
         fouls: 0, goalsConceded: 0, skillMoves: 0, bigChancesMissed: 0,
+        keyPasses: 0, sprints: 0,
       };
       allOtherCompleted.forEach((og) => {
         const inA = (og.teamA?.players || []).includes(pid);
@@ -119,6 +121,8 @@ export default function GameWeekManagerPage() {
         otherTotals.goalsConceded += ms.goalsConceded || ms.goalsConcededAsDF || 0;
         otherTotals.skillMoves += ms.skillMoves || 0;
         otherTotals.bigChancesMissed += ms.bigChancesMissed || 0;
+        otherTotals.keyPasses += ms.keyPasses || 0;
+        otherTotals.sprints += ms.sprints || 0;
       });
 
       const inOldA = (gw.teamA?.players || []).includes(pid);
@@ -188,6 +192,7 @@ export default function GameWeekManagerPage() {
         tackles: ps.tackles || 0, interceptions: ps.interceptions || 0,
         saves: ps.saves || 0, blocks: ps.blocks || 0,
         shotsOnTarget: ps.shotsOnTarget || 0, shotsOffTarget: derivedSoF,
+        keyPasses: ps.keyPasses || 0, sprints: ps.sprints || 0,
         skillMoves: ps.skillMoves || 0, bigChancesMissed: ps.bigChancesMissed || 0,
         fouls: ps.fouls || 0, goalsConceded: ps.goalsConceded || ps.goalsConcededAsDF || 0,
         goalsConcededAsGK: ps.goalsConcededAsGK || 0,
@@ -271,6 +276,7 @@ export default function GameWeekManagerPage() {
         tackles: +perf.tackles || 0, interceptions: +perf.interceptions || 0,
         saves: +perf.saves || 0, blocks: +perf.blocks || 0,
         shotsOnTarget: sot, shotsOffTarget: sof, shots: sot + sof,
+        keyPasses: +perf.keyPasses || 0, sprints: +perf.sprints || 0,
         skillMoves: +perf.skillMoves || 0, bigChancesMissed: +perf.bigChancesMissed || 0,
         fouls: +perf.fouls || 0, yellowCard: !!perf.yellowCard, redCard: !!perf.redCard,
         goalsConceded: inA ? teamBScore : teamAScore,
@@ -311,6 +317,7 @@ export default function GameWeekManagerPage() {
         goals: 0, assists: 0, tackles: 0, cleanSheets: 0, saves: 0, gamesPlayed: 0, motm: 0,
         shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
         fouls: 0, goalsConceded: 0, skillMoves: 0, bigChancesMissed: 0,
+        keyPasses: 0, sprints: 0,
       };
       allOtherCompleted.forEach((gw) => {
         const inA = (gw.teamA?.players || []).includes(pid);
@@ -335,6 +342,8 @@ export default function GameWeekManagerPage() {
         otherTotals.goalsConceded += ms.goalsConceded || ms.goalsConcededAsDF || 0;
         otherTotals.skillMoves += ms.skillMoves || 0;
         otherTotals.bigChancesMissed += ms.bigChancesMissed || 0;
+        otherTotals.keyPasses += ms.keyPasses || 0;
+        otherTotals.sprints += ms.sprints || 0;
       });
 
       const baseRating = p.baseRating ?? (() => {
@@ -365,11 +374,13 @@ export default function GameWeekManagerPage() {
             interceptions: newMs.interceptions || 0, blocks: newMs.blocks || 0,
             fouls: newMs.fouls || 0, goalsConceded: newMs.goalsConceded || 0,
             skillMoves: newMs.skillMoves || 0, bigChancesMissed: newMs.bigChancesMissed || 0,
+            keyPasses: newMs.keyPasses || 0, sprints: newMs.sprints || 0,
           }
         : {
             goals: 0, assists: 0, tackles: 0, cleanSheets: 0, saves: 0, gamesPlayed: 0, motm: 0,
             shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
             fouls: 0, goalsConceded: 0, skillMoves: 0, bigChancesMissed: 0,
+            keyPasses: 0, sprints: 0,
           };
 
       const seasonTotals = {
@@ -387,6 +398,8 @@ export default function GameWeekManagerPage() {
         gamesPlayed: otherTotals.gamesPlayed + thisGWTotals.gamesPlayed,
         skillMoves: otherTotals.skillMoves + thisGWTotals.skillMoves,
         bigChancesMissed: otherTotals.bigChancesMissed + thisGWTotals.bigChancesMissed,
+        keyPasses: otherTotals.keyPasses + thisGWTotals.keyPasses,
+        sprints: otherTotals.sprints + thisGWTotals.sprints,
       };
 
       return {
@@ -470,8 +483,10 @@ export default function GameWeekManagerPage() {
       { key: 'saves', label: 'Svs' },
       { key: 'shotsOnTarget', label: 'SoT' },
       { key: 'shotsOffTarget', label: 'SoF' },
+      { key: 'keyPasses', label: 'KP' },
       { key: 'skillMoves', label: 'Skl' },
       { key: 'bigChancesMissed', label: 'BCM' },
+      { key: 'sprints', label: 'Pace' },
       { key: 'fouls', label: 'Foul' },
       { key: 'goalsConceded', label: 'GC', readOnly: true },
       { key: 'goalsConcededAsGK', label: 'GCK' },
@@ -595,7 +610,7 @@ export default function GameWeekManagerPage() {
           {allMatchPlayers.length > 0 && (
             <div className="gpl-card p-5 sm:p-6">
               <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-1">Player Performance</h3>
-              <p className="text-[10px] text-gpl-muted mb-4">SoT = Shots on Target · SoF = Shots off Target · Skl = Skill Moves · BCM = Big Chances Missed · GC = Goals Conceded (auto) · GCK = Goals Conceded as GK</p>
+              <p className="text-[10px] text-gpl-muted mb-4">SoT = Shots on Target · SoF = Shots off Target · KP = Key Passes · Skl = Skill Moves · BCM = Big Chances Missed · Pace = Sprints/Take-Ons · GC = Goals Conceded (auto) · GCK = Goals Conceded as GK</p>
               {[['teamAPlayers', '#ef4444', 'Team A', autoTeamBScore], ['teamBPlayers', '#3b82f6', 'Team B', autoTeamAScore]].map(([teamKey, color, label, teamGC]) => (
                 form[teamKey].length > 0 && (
                   <div key={teamKey} className="mb-5">

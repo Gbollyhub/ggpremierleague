@@ -39,6 +39,7 @@ const MATCH_WEIGHTS = {
     goals:            +1.20, assists:          +0.70, shotsOnTarget:    +0.40,
     blocks:           +0.15, interceptions:    +0.15, tackles:          +0.15,
     cleanSheet:       +0.75, saves:            +0.40, skillMoves:       +0.20,
+    keyPasses:        +0.30,
     shotsOffTarget:   -0.05, bigChancesMissed: -0.03, goalsConceded:    -0.25,
     fouls:            -0.15, yellowCard:       -0.25, redCard:          -1.50,
     ownGoals:         -1.20,
@@ -47,6 +48,7 @@ const MATCH_WEIGHTS = {
     goals:            +0.90, assists:          +0.60, shotsOnTarget:    +0.30,
     blocks:           +0.20, interceptions:    +0.20, tackles:          +0.20,
     cleanSheet:       +0.50, saves:            +0.40, skillMoves:       +0.20,
+    keyPasses:        +0.25,
     shotsOffTarget:   -0.08, bigChancesMissed: -0.06, goalsConceded:    -0.15,
     fouls:            -0.15, yellowCard:       -0.25, redCard:          -1.50,
     ownGoals:         -1.00,
@@ -55,6 +57,7 @@ const MATCH_WEIGHTS = {
     goals:            +0.75, assists:          +0.45, shotsOnTarget:    +0.20,
     blocks:           +0.25, interceptions:    +0.25, tackles:          +0.25,
     cleanSheet:       +0.18, saves:            +0.40, skillMoves:       +0.20,
+    keyPasses:        +0.20,
     shotsOffTarget:   -0.15, bigChancesMissed: -0.15, goalsConceded:    -0.10,
     fouls:            -0.15, yellowCard:       -0.25, redCard:          -1.50,
     ownGoals:         -1.00,
@@ -63,6 +66,7 @@ const MATCH_WEIGHTS = {
     goals:            +0.65, assists:          +0.45, shotsOnTarget:    +0.12,
     blocks:           +0.26, interceptions:    +0.30, tackles:          +0.28,
     cleanSheet:       +0.08, saves:            +0.40, skillMoves:       +0.20,
+    keyPasses:        +0.20,
     shotsOffTarget:   -0.18, bigChancesMissed: -0.25, goalsConceded:    -0.05,
     fouls:            -0.15, yellowCard:       -0.25, redCard:          -1.50,
     ownGoals:         -1.00,
@@ -94,7 +98,7 @@ export function calculateMatchRating(player, matchStats, isCleanSheet) {
     goals = 0, assists = 0, tackles = 0, interceptions = 0, blocks = 0,
     saves = 0, shots = 0, shotsOnTarget = 0, shotsOffTarget = 0, fouls = 0,
     yellowCard = false, redCard = false, goalsConceded = 0,
-    skillMoves = 0, bigChancesMissed = 0, ownGoals = 0,
+    skillMoves = 0, bigChancesMissed = 0, ownGoals = 0, keyPasses = 0,
   } = matchStats;
 
   const pos = player.position;
@@ -109,6 +113,7 @@ export function calculateMatchRating(player, matchStats, isCleanSheet) {
     tackles,
     cleanSheet:       isCleanSheet ? 1 : 0,
     skillMoves,
+    keyPasses,
     goalsConceded,
     fouls,
     shotsOffTarget:   shotsOffTarget || Math.max(0, shots - shotsOnTarget),
@@ -147,7 +152,7 @@ export function calculateAttributes(seasonStats, currentAttrs = {}) {
     goals = 0, assists = 0, shots = 0, shotsOnTarget = 0,
     tackles = 0, interceptions = 0, blocks = 0, fouls = 0,
     saves = 0, goalsConceded = 0, goalsConcededAsGK = 0, gamesPlayed = 0,
-    skillMoves = 0, bigChancesMissed = 0,
+    skillMoves = 0, bigChancesMissed = 0, keyPasses = 0, sprints = 0,
   } = seasonStats;
 
   const gp = Math.max(gamesPlayed, 1);
@@ -161,10 +166,10 @@ export function calculateAttributes(seasonStats, currentAttrs = {}) {
   };
 
   return {
-    pace:       ATTR_BASE,
+    pace:       smooth('pace',       ATTR_BASE + (sprints / gp) * 2),
     finishing:  smooth('finishing',  ATTR_BASE + (goals / gp) * 7 + shotAccuracy * 8 - missRate * 4 - (bigChancesMissed / gp) * 2),
     dribbling:  smooth('dribbling',  ATTR_BASE + (skillMoves / gp) * 8),
-    passing:    smooth('passing',    ATTR_BASE + (assists / gp) * 8 + (shotsOnTarget / gp) * 1.5),
+    passing:    smooth('passing',    ATTR_BASE + (assists / gp) * 8 + (keyPasses / gp) * 3 + (shotsOnTarget / gp) * 1.5),
     physical:   smooth('physical',   ATTR_BASE + (tackles / gp) * 1.5 - (fouls / gp) * 2),
     defending:  smooth('defending',  ATTR_BASE + (interceptions / gp) * 1.0 + (tackles / gp) * 0.7 + (blocks / gp) * 0.5 - (fouls / gp) * 1.5 - (goalsConceded / gp) * 1.5),
     gkReflexes: smooth('gkReflexes', ATTR_BASE + (saves / gp) * 3 - (goalsConcededAsGK / gp) * 1.5),

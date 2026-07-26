@@ -42,6 +42,7 @@ function MatchReportModal({ pid, gw, players, onClose }) {
   const statRows = [
     { label: 'Goals', value: ps.goals ?? 0 },
     { label: 'Assists', value: ps.assists ?? 0 },
+    { label: 'Key Passes', value: ps.keyPasses ?? 0 },
     { label: 'Own Goals', value: ps.ownGoals ?? 0 },
     { label: 'Goals Conceded', value: ps.goalsConceded ?? ps.goalsConcededAsDF ?? 0 },
     { label: 'GK Goals Conceded', value: ps.goalsConcededAsGK ?? 0 },

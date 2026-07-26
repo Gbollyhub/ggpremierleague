@@ -27,7 +27,7 @@ export default function PlayerDetailPage() {
     const totals = {
       shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
       fouls: 0, goalsConceded: 0, goalsConcededAsGK: 0, yellowCard: 0, redCard: 0,
-      skillMoves: 0, bigChancesMissed: 0,
+      skillMoves: 0, bigChancesMissed: 0, keyPasses: 0,
     };
     if (!p) return totals;
     gameWeeks.filter(gwCompleted).forEach((gw) => {
@@ -45,6 +45,7 @@ export default function PlayerDetailPage() {
       totals.redCard          += ps.redCard ? 1 : 0;
       totals.skillMoves       += ps.skillMoves || 0;
       totals.bigChancesMissed += ps.bigChancesMissed || 0;
+      totals.keyPasses        += ps.keyPasses || 0;
     });
     return totals;
   }, [gameWeeks, p]);
@@ -76,6 +77,7 @@ export default function PlayerDetailPage() {
   const seasonStats = [
     { l: 'Goals',               v: p.stats.goals,              c: '#ef4444' },
     { l: 'Assists',             v: p.stats.assists,            c: '#3b82f6' },
+    { l: 'Key Passes',          v: gwStats.keyPasses,          c: '#84cc16' },
     { l: 'Shots',               v: gwStats.shots,              c: '#ec4899' },
     { l: 'Shots on Target',     v: gwStats.shotsOnTarget,      c: '#f97316' },
     { l: 'Shots off Target',    v: gwStats.shotsOffTarget,     c: '#fb923c' },
