@@ -132,42 +132,22 @@ export const useStore = create((set, get) => ({
   recalculateAllAttributes: async () => {
     try {
       const { players, gameWeeks } = get();
-      const { calculateAttributes, calculateRatingDelta, clampRating } = await import('@/utils/players');
-      const completed = gameWeeks.filter((gw) => gw.status === 'completed' || gw.completed === true);
+      const { replaySeason } = await import('@/utils/players');
+      const { players: replayed, matches } = replaySeason(players, gameWeeks);
       const batch = writeBatch(db);
       for (const p of players) {
-        const totals = { goals: 0, assists: 0, shots: 0, shotsOnTarget: 0, tackles: 0, interceptions: 0, blocks: 0, fouls: 0, saves: 0, goalsConceded: 0, goalsConcededAsGK: 0, gamesPlayed: 0, skillMoves: 0, bigChancesMissed: 0, keyPasses: 0, sprints: 0 };
-        let deltaSum = 0;
-        completed.forEach((gw) => {
-          const inA = (gw.teamA?.players || []).includes(p.id);
-          const inB = (gw.teamB?.players || []).includes(p.id);
-          if (!inA && !inB) return;
-          const ms = gw.playerStats?.[p.id] || {};
-          const isCS = (inA && +(gw.teamB?.score || 0) === 0) || (inB && +(gw.teamA?.score || 0) === 0);
-          deltaSum += calculateRatingDelta(p, ms, isCS);
-          totals.goals += ms.goals || 0;
-          totals.assists += ms.assists || 0;
-          totals.shots += ms.shots || 0;
-          totals.shotsOnTarget += ms.shotsOnTarget || 0;
-          totals.tackles += ms.tackles || 0;
-          totals.interceptions += ms.interceptions || 0;
-          totals.blocks += ms.blocks || 0;
-          totals.fouls += ms.fouls || 0;
-          totals.saves += ms.saves || 0;
-          totals.goalsConceded += ms.goalsConceded || ms.goalsConcededAsDF || 0;
-          totals.goalsConcededAsGK += ms.goalsConcededAsGK || 0;
-          totals.skillMoves += ms.skillMoves || 0;
-          totals.bigChancesMissed += ms.bigChancesMissed || 0;
-          totals.keyPasses += ms.keyPasses || 0;
-          totals.sprints += ms.sprints || 0;
-          totals.gamesPlayed += 1;
-        });
-        const base = p.baseRating ?? (p.rating - deltaSum);
-        batch.update(doc(db, 'players', p.id), {
-          baseRating: base,
-          rating: clampRating(base + deltaSum),
-          attributes: calculateAttributes(totals, p.attributes),
-        });
+        const { baseRating, rating, attributes, stats } = replayed[p.id];
+        batch.update(doc(db, 'players', p.id), { baseRating, rating, attributes, stats });
+      }
+      // Refresh stored match ratings that were saved under older formulas
+      for (const gw of gameWeeks) {
+        const updates = {};
+        for (const [pid, { matchRating }] of Object.entries(matches[gw.id] || {})) {
+          if (gw.playerStats?.[pid] && gw.playerStats[pid].matchRating !== matchRating) {
+            updates[`playerStats.${pid}.matchRating`] = matchRating;
+          }
+        }
+        if (Object.keys(updates).length) batch.update(doc(db, 'gameWeeks', gw.id), updates);
       }
       await batch.commit();
       get().addToast(`Attributes recalculated for ${players.length} players`, 'success');

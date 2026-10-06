@@ -3,6 +3,7 @@ import { useStore } from '@/store/useStore';
 import { IconStar, IconX } from '@/components/ui/Icons';
 import FormationDisplay from '@/components/cards/FormationDisplay';
 import { POS_COLORS, POSITIONS } from '@/data/constants';
+import { getMatchPosition, isGWRecorded } from '@/utils/players';
 
 const gwCompleted = (gw) => gw.status === 'completed' || gw.completed === true;
 
@@ -36,7 +37,8 @@ function MatchReportModal({ pid, gw, players, onClose }) {
   if (!p || !gw) return null;
   const ps = gw.playerStats?.[pid] || {};
   const mr = ps.matchRating;
-  const posColor = POS_COLORS[p.position];
+  const matchPos = getMatchPosition(p, ps);
+  const posColor = POS_COLORS[matchPos];
 
   const shotsOffTarget = ps.shotsOffTarget ?? Math.max(0, (ps.shots ?? 0) - (ps.shotsOnTarget ?? 0));
   const statRows = [
@@ -57,6 +59,10 @@ function MatchReportModal({ pid, gw, players, onClose }) {
     { label: 'Blocks', value: ps.blocks ?? 0 },
     { label: 'Fouls', value: ps.fouls ?? 0 },
   ];
+  // Goals-only games: detailed stats weren't captured, so only show what was
+  const GOALS_ONLY_ROWS = ['Goals', 'Assists', 'Own Goals', 'Goals Conceded'];
+  const recorded = isGWRecorded(gw);
+  const visibleRows = recorded ? statRows : statRows.filter((r) => GOALS_ONLY_ROWS.includes(r.label));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -66,7 +72,7 @@ function MatchReportModal({ pid, gw, players, onClose }) {
           <div className="flex items-start justify-between mb-4">
             <div>
               <div className="text-lg font-bold text-gpl">{p.name}</div>
-              <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ background: posColor }}>{POSITIONS[p.position]}</span>
+              <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ background: posColor }}>{POSITIONS[matchPos]}</span>
             </div>
             <div className="flex items-center gap-3">
               {mr !== undefined && (
@@ -82,7 +88,8 @@ function MatchReportModal({ pid, gw, players, onClose }) {
           </div>
 
           <div className="space-y-0">
-            {statRows.map(({ label, value }) => (
+            {!recorded && <p className="text-[11px] text-gpl-muted pb-2">Goals-only game — this match wasn't filmed, so only goals and assists were recorded.</p>}
+            {visibleRows.map(({ label, value }) => (
               <div key={label} className="flex items-center justify-between py-1.5 border-t border-gpl-border first:border-0">
                 <span className="text-xs text-gpl-muted">{label}</span>
                 <span className="text-sm font-bold text-gpl">{value}</span>
@@ -122,6 +129,14 @@ export default function GameWeekPage() {
     if (!gw?.playerStats) return {};
     return Object.fromEntries(
       Object.entries(gw.playerStats).map(([pid, s]) => [pid, s.matchRating])
+    );
+  }, [gw]);
+
+  // Position each player played in this match, for the formation layout
+  const matchPositions = useMemo(() => {
+    if (!gw?.playerStats) return {};
+    return Object.fromEntries(
+      Object.entries(gw.playerStats).filter(([, s]) => s.position).map(([pid, s]) => [pid, s.position])
     );
   }, [gw]);
 
@@ -237,6 +252,14 @@ export default function GameWeekPage() {
               </div>
             )}
 
+            {!isGWRecorded(gw) && (
+              <div className="mt-6 flex justify-center">
+                <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-gpl-inset text-gpl-muted" title="This match wasn't filmed — only goals, assists and cards were recorded">
+                  GOALS ONLY · NOT FILMED
+                </span>
+              </div>
+            )}
+
             {/* MOTM */}
             {gw.motm && (() => { const mp = players.find((p) => p.id === gw.motm); return mp ? (
               <div className="mt-6 flex justify-center">
@@ -249,7 +272,7 @@ export default function GameWeekPage() {
           </div>
 
           {/* Side-by-side match stats */}
-          {hasMatchStats && (
+          {hasMatchStats && isGWRecorded(gw) && (
             <div className="gpl-card p-6">
               <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-1 text-center">Match Stats</h3>
               <div className="flex justify-between text-[12px] font-bold mb-3">
@@ -280,6 +303,7 @@ export default function GameWeekPage() {
                   teamName={`Team A — ${gw.teamA.score} goal(s)`}
                   allPlayers={players}
                   matchRatings={matchRatings}
+                  positions={matchPositions}
                   onPlayerClick={setMatchReportPid}
                   subIds={gw.teamA?.subs || []}
                   hideRating
@@ -290,6 +314,7 @@ export default function GameWeekPage() {
                   teamName={`Team B — ${gw.teamB.score} goal(s)`}
                   allPlayers={players}
                   matchRatings={matchRatings}
+                  positions={matchPositions}
                   onPlayerClick={setMatchReportPid}
                   subIds={gw.teamB?.subs || []}
                   hideRating

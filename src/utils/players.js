@@ -73,6 +73,12 @@ const MATCH_WEIGHTS = {
   },
 };
 
+// Position the player actually played in a given match. Falls back to their profile
+// position for matches recorded before per-match positions existed.
+export function getMatchPosition(player, matchStats) {
+  return matchStats?.position || player.position;
+}
+
 // candidates: [{ id, position, matchRating, matchStats, isCleanSheet }]
 // Highest rating wins; ties broken by goals → assists → saves.
 export function getManOfTheMatch(candidates) {
@@ -91,9 +97,21 @@ export function getManOfTheMatch(candidates) {
   }).id;
 }
 
+// A game week counts as camera-recorded unless explicitly flagged otherwise (legacy GWs have no flag).
+export const isGWRecorded = (gw) => gw?.isRecorded !== false;
+
+// Stats that are only captured when the game is filmed. In goals-only games they are unknown,
+// not zero, so they are ignored — as is goalsConceded, which would otherwise be the only
+// defensive stat counted and could never be offset by the tackles/saves nobody logged.
+const RECORDED_ONLY_STATS = [
+  'saves', 'shotsOnTarget', 'blocks', 'interceptions', 'tackles', 'skillMoves', 'keyPasses',
+  'goalsConceded', 'fouls', 'shotsOffTarget', 'bigChancesMissed',
+];
+
 // Returns individual match rating on a 0–10 scale.
 // Formula: rating = clamp(6.0 + Σ(count × position_weight), 0, 10)
-export function calculateMatchRating(player, matchStats, isCleanSheet) {
+// isRecorded = false (goals-only game): only goals, assists, own goals, cards and clean sheet count.
+export function calculateMatchRating(player, matchStats, isCleanSheet, isRecorded = true) {
   const {
     goals = 0, assists = 0, tackles = 0, interceptions = 0, blocks = 0,
     saves = 0, shots = 0, shotsOnTarget = 0, shotsOffTarget = 0, fouls = 0,
@@ -101,8 +119,7 @@ export function calculateMatchRating(player, matchStats, isCleanSheet) {
     skillMoves = 0, bigChancesMissed = 0, ownGoals = 0, keyPasses = 0,
   } = matchStats;
 
-  const pos = player.position;
-  const weights = MATCH_WEIGHTS[pos];
+  const weights = MATCH_WEIGHTS[getMatchPosition(player, matchStats)];
   const statMap = {
     goals,
     assists,
@@ -122,6 +139,7 @@ export function calculateMatchRating(player, matchStats, isCleanSheet) {
     redCard:          redCard ? 1 : 0,
     ownGoals,
   };
+  if (!isRecorded) RECORDED_ONLY_STATS.forEach((stat) => { statMap[stat] = 0; });
 
   let raw = 6.0;
   for (const [stat, count] of Object.entries(statMap)) {
@@ -132,15 +150,14 @@ export function calculateMatchRating(player, matchStats, isCleanSheet) {
   return Math.max(0, Math.min(10, Math.round(raw * 100) / 100));
 }
 
-// Card delta derived directly from match rating distance from 6.0 baseline.
-// Scaling factor of 1.5: MOTM (~9.0) → +4.5, average (6.0) → 0, shocker (~4.0) → -3.0.
-// Clamping to card range happens at the call site via clampRating().
+// Card delta = how far the match rating beat (or fell short of) what was expected of the player.
+// 1.5 × 0.5 = 0.75 card points per match-rating point: beating expectation by 2.0 → +1.5.
+// Clamping to card range happens in replaySeason / clampRating().
 const DELTA_SCALE = 1.5;
-const SMOOTHING_FACTOR = 0.35;
+const SMOOTHING_FACTOR = 0.5;
 
-export function calculateRatingDelta(player, matchStats, isCleanSheet) {
-  const matchRating = calculateMatchRating(player, matchStats, isCleanSheet);
-  return Math.round((matchRating - 6.0) * DELTA_SCALE * SMOOTHING_FACTOR * 100) / 100;
+export function calculateRatingDelta(matchRating, expectedMatchRating) {
+  return Math.round((matchRating - expectedMatchRating) * DELTA_SCALE * SMOOTHING_FACTOR * 100) / 100;
 }
 
 // Each attribute blends 25% toward the newly calculated value from the player's current value.
@@ -153,9 +170,13 @@ export function calculateAttributes(seasonStats, currentAttrs = {}) {
     tackles = 0, interceptions = 0, blocks = 0, fouls = 0,
     saves = 0, goalsConceded = 0, goalsConcededAsGK = 0, gamesPlayed = 0,
     skillMoves = 0, bigChancesMissed = 0, keyPasses = 0, sprints = 0,
+    recordedGames = gamesPlayed,
   } = seasonStats;
 
+  // Goals, assists and goals conceded are known for every game; everything else only for
+  // camera-recorded games, so those are averaged over recorded games (rgp) only.
   const gp = Math.max(gamesPlayed, 1);
+  const rgp = Math.max(recordedGames, 1);
   const shotAccuracy = shots > 0 ? shotsOnTarget / shots : 0;
   const missRate     = shots > 0 ? Math.max(0, shots - shotsOnTarget) / shots : 0;
 
@@ -166,14 +187,142 @@ export function calculateAttributes(seasonStats, currentAttrs = {}) {
   };
 
   return {
-    pace:       smooth('pace',       ATTR_BASE + (sprints / gp) * 2),
-    finishing:  smooth('finishing',  ATTR_BASE + (goals / gp) * 7 + shotAccuracy * 8 - missRate * 4 - (bigChancesMissed / gp) * 2),
-    dribbling:  smooth('dribbling',  ATTR_BASE + (skillMoves / gp) * 8),
-    passing:    smooth('passing',    ATTR_BASE + (assists / gp) * 8 + (keyPasses / gp) * 3 + (shotsOnTarget / gp) * 1.5),
-    physical:   smooth('physical',   ATTR_BASE + (tackles / gp) * 1.5 - (fouls / gp) * 2),
-    defending:  smooth('defending',  ATTR_BASE + (interceptions / gp) * 1.0 + (tackles / gp) * 0.7 + (blocks / gp) * 0.5 - (fouls / gp) * 1.5 - (goalsConceded / gp) * 1.5),
-    gkReflexes: smooth('gkReflexes', ATTR_BASE + (saves / gp) * 3 - (goalsConcededAsGK / gp) * 1.5),
+    pace:       smooth('pace',       ATTR_BASE + (sprints / rgp) * 2),
+    finishing:  smooth('finishing',  ATTR_BASE + (goals / gp) * 7 + shotAccuracy * 8 - missRate * 4 - (bigChancesMissed / rgp) * 2),
+    dribbling:  smooth('dribbling',  ATTR_BASE + (skillMoves / rgp) * 8),
+    passing:    smooth('passing',    ATTR_BASE + (assists / gp) * 8 + (keyPasses / rgp) * 3 + (shotsOnTarget / rgp) * 1.5),
+    physical:   smooth('physical',   ATTR_BASE + (tackles / rgp) * 1.5 - (fouls / rgp) * 2),
+    defending:  smooth('defending',  ATTR_BASE + (interceptions / rgp) * 1.0 + (tackles / rgp) * 0.7 + (blocks / rgp) * 0.5 - (fouls / rgp) * 1.5 - (goalsConceded / gp) * 1.5),
+    gkReflexes: smooth('gkReflexes', ATTR_BASE + (saves / rgp) * 3 - (goalsConcededAsGK / rgp) * 1.5),
   };
+}
+
+const isGWCompleted = (gw) => gw.status === 'completed' || gw.completed === true;
+
+// Expected match rating (Elo-style):
+//   expected = positionAvg + (ratingBeforeMatch − leagueAvgOverall) × EXPECTATION_SLOPE
+// positionAvg is the running average match rating for that position over every game up to and
+// including this one, shrunk toward the league average until the position has POSITION_PRIOR_APPS
+// appearances (keeps small samples, e.g. GKs, from swinging wildly).
+// A slope of 0.05 means a player 20 points above the league average must play 1.0 better to hold steady.
+// Recorded and goals-only games keep separate averages, since their match ratings aren't comparable,
+// and goals-only games move ratings at half weight because we know less about them.
+const EXPECTATION_SLOPE = 0.05;
+const POSITION_PRIOR_APPS = 20;
+const UNRECORDED_WEIGHT = 0.5;
+
+const EMPTY_TOTALS = () => ({
+  goals: 0, assists: 0, tackles: 0, cleanSheets: 0, saves: 0, gamesPlayed: 0, motm: 0,
+  shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
+  fouls: 0, goalsConceded: 0, goalsConcededAsGK: 0, skillMoves: 0, bigChancesMissed: 0,
+  keyPasses: 0, sprints: 0, recordedGames: 0,
+});
+
+function addToTotals(totals, ms, isCS, isMotm, isRecorded) {
+  totals.goals += ms.goals || 0;
+  totals.assists += ms.assists || 0;
+  totals.cleanSheets += isCS ? 1 : 0;
+  totals.gamesPlayed += 1;
+  totals.motm += isMotm ? 1 : 0;
+  totals.goalsConceded += ms.goalsConceded || ms.goalsConcededAsDF || 0;
+  if (!isRecorded) return;
+  totals.recordedGames += 1;
+  totals.tackles += ms.tackles || 0;
+  totals.saves += ms.saves || 0;
+  totals.shots += ms.shots || 0;
+  totals.shotsOnTarget += ms.shotsOnTarget || 0;
+  totals.shotsOffTarget += ms.shotsOffTarget || 0;
+  totals.interceptions += ms.interceptions || 0;
+  totals.blocks += ms.blocks || 0;
+  totals.fouls += ms.fouls || 0;
+  totals.goalsConcededAsGK += ms.goalsConcededAsGK || 0;
+  totals.skillMoves += ms.skillMoves || 0;
+  totals.bigChancesMissed += ms.bigChancesMissed || 0;
+  totals.keyPasses += ms.keyPasses || 0;
+  totals.sprints += ms.sprints || 0;
+}
+
+// Replays every completed game week in order for the whole league and rebuilds each player's
+// rating, season stats and attributes from their baseRating. Ratings are league-relative, so a
+// change to any game week can shift every player's rating — always replay the full set.
+// Returns { players: { [id]: { baseRating, rating, attributes, stats } },
+//           matches: { [gwId]: { [playerId]: { matchRating, expected, delta } } } }
+export function replaySeason(players, gameWeeks) {
+  const byId = Object.fromEntries(players.map((p) => [p.id, p]));
+  const running = Object.fromEntries(players.map((p) => [p.id, p.baseRating ?? p.rating]));
+  const totals = Object.fromEntries(players.map((p) => [p.id, EMPTY_TOTALS()]));
+  const appeared = new Set();
+  // Running match-rating averages, kept separately for recorded and goals-only games
+  const newLevel = () => ({ posSum: { GK: 0, DF: 0, MF: 0, FW: 0 }, posCount: { GK: 0, DF: 0, MF: 0, FW: 0 }, sum: 0, count: 0 });
+  const levels = { recorded: newLevel(), goalsOnly: newLevel() };
+  const matches = {};
+
+  const ordered = gameWeeks.filter(isGWCompleted).sort((a, b) =>
+    (a.weekNumber - b.weekNumber) || String(a.date).localeCompare(String(b.date)));
+
+  for (const gw of ordered) {
+    const isRecorded = isGWRecorded(gw);
+    const lvl = levels[isRecorded ? 'recorded' : 'goalsOnly'];
+    const weight = isRecorded ? 1 : UNRECORDED_WEIGHT;
+    const entries = [];
+    for (const [side, opp] of [['teamA', 'teamB'], ['teamB', 'teamA']]) {
+      for (const pid of gw[side]?.players || []) {
+        const p = byId[pid];
+        if (!p) continue;
+        const ms = gw.playerStats?.[pid] || {};
+        const isCS = +(gw[opp]?.score || 0) === 0;
+        entries.push({ pid, ms, isCS, pos: getMatchPosition(p, ms), mr: calculateMatchRating(p, ms, isCS, isRecorded) });
+      }
+    }
+
+    // Averages include this game week, so each match is judged against the league as it stood then.
+    entries.forEach(({ pid, pos, mr }) => {
+      lvl.posSum[pos] += mr; lvl.posCount[pos] += 1; lvl.sum += mr; lvl.count += 1;
+      appeared.add(pid);
+    });
+    const leagueAvgMR = lvl.count ? lvl.sum / lvl.count : 6.0;
+    const positionAvg = (pos) =>
+      (lvl.posSum[pos] + POSITION_PRIOR_APPS * leagueAvgMR) / (lvl.posCount[pos] + POSITION_PRIOR_APPS);
+    const leagueAvgOverall = [...appeared].reduce((s, id) => s + running[id], 0) / appeared.size;
+
+    // Deltas are computed from pre-match ratings for everyone, then applied together.
+    // Each game week is zero-sum (like Elo): expectations are shifted by the match's mean residual,
+    // so the league as a whole can neither inflate nor deflate — only relative performance moves ratings.
+    matches[gw.id] = {};
+    const rawExpected = entries.map(({ pid, pos }) =>
+      positionAvg(pos) + (running[pid] - leagueAvgOverall) * EXPECTATION_SLOPE);
+    const meanResidual = entries.length
+      ? entries.reduce((s, { mr }, i) => s + (mr - rawExpected[i]), 0) / entries.length
+      : 0;
+    const deltas = entries.map(({ pid, mr }, i) => {
+      const expected = rawExpected[i] + meanResidual;
+      const delta = Math.round(calculateRatingDelta(mr, expected) * weight * 100) / 100;
+      matches[gw.id][pid] = { matchRating: mr, expected: Math.round(expected * 100) / 100, delta };
+      return [pid, delta];
+    });
+    deltas.forEach(([pid, delta]) => {
+      running[pid] = Math.min(MAX_RATING, Math.max(MIN_RATING, running[pid] + delta));
+    });
+    entries.forEach(({ pid, ms, isCS }) => addToTotals(totals[pid], ms, isCS, gw.motm === pid, isRecorded));
+  }
+
+  const result = {};
+  for (const p of players) {
+    const t = totals[p.id];
+    result[p.id] = {
+      baseRating: p.baseRating ?? p.rating,
+      rating: clampRating(running[p.id]),
+      attributes: calculateAttributes(t, p.attributes),
+      stats: {
+        goals: t.goals, assists: t.assists, tackles: t.tackles,
+        cleanSheets: t.cleanSheets, saves: t.saves,
+        gamesPlayed: t.gamesPlayed, motm: t.motm,
+        shots: t.shots, shotsOffTarget: t.shotsOffTarget,
+        skillMoves: t.skillMoves, bigChancesMissed: t.bigChancesMissed,
+      },
+    };
+  }
+  return { players: result, matches };
 }
 
 export function calculateWinProbability(avgA, avgB) {

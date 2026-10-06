@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { getManOfTheMatch, calculateMatchRating, calculateRatingDelta, clampRating, calculateAttributes } from '@/utils/players';
+import { getManOfTheMatch, calculateMatchRating, getMatchPosition, replaySeason, isGWRecorded } from '@/utils/players';
+import { POSITIONS } from '@/data/constants';
 import { IconPlus, IconX, IconStar, IconEdit, IconTrash } from '@/components/ui/Icons';
 
 const gwCompleted = (gw) => gw.status === 'completed' || gw.completed === true;
@@ -14,6 +15,20 @@ const EMPTY_PERF = () => ({
   yellowCard: false, redCard: false,
 });
 
+// Ratings are league-relative, so replaying after any change can move every player's rating.
+// Players in the changed match get a full rebuild; everyone else only gets their rating
+// (attributes are smoothed toward each new value, so rewriting them unnecessarily would drift them).
+function buildPlayerDiffs(players, nextGameWeeks, affectedIds) {
+  const replay = replaySeason(players, nextGameWeeks).players;
+  const affected = new Set(affectedIds);
+  return players.map((p) => {
+    const next = replay[p.id];
+    if (affected.has(p.id)) return { id: p.id, updates: next };
+    if (next.rating !== p.rating) return { id: p.id, updates: { rating: next.rating } };
+    return null;
+  }).filter(Boolean);
+}
+
 const EMPTY_STATS = () => ({ corners: 0 });
 const EMPTY_FORM = () => ({
   teamAPlayers: [], teamBPlayers: [],
@@ -22,6 +37,7 @@ const EMPTY_FORM = () => ({
   playerPerf: {},
   teamAStats: EMPTY_STATS(), teamBStats: EMPTY_STATS(),
   matchLink: '',
+  isRecorded: true,
 });
 
 // Computes team-level aggregates from individual player perf entries
@@ -64,7 +80,8 @@ export default function GameWeekManagerPage() {
   }));
   const addToTeam = (teamKey, pid) => {
     if (!pid || form[teamKey].includes(pid)) return;
-    setForm((f) => ({ ...f, [teamKey]: [...f[teamKey], pid], playerPerf: { ...f.playerPerf, [pid]: f.playerPerf[pid] || EMPTY_PERF() } }));
+    const position = players.find((p) => p.id === pid)?.position;
+    setForm((f) => ({ ...f, [teamKey]: [...f[teamKey], pid], playerPerf: { ...f.playerPerf, [pid]: f.playerPerf[pid] || { ...EMPTY_PERF(), position } } }));
   };
   const removeFromTeam = (teamKey, pid) => {
     const other = teamKey === 'teamAPlayers' ? 'teamBPlayers' : 'teamAPlayers';
@@ -85,68 +102,7 @@ export default function GameWeekManagerPage() {
   const handleDelete = async (gw) => {
     setDeleting(true);
     const gwPlayers = [...(gw.teamA?.players || []), ...(gw.teamB?.players || [])];
-    const allOtherCompleted = gameWeeks.filter((g) => gwCompleted(g) && g.id !== gw.id);
-
-    const playerDiffs = gwPlayers.map((pid) => {
-      const p = players.find((pl) => pl.id === pid);
-      if (!p) return null;
-
-      let otherDeltaSum = 0;
-      const otherTotals = {
-        goals: 0, assists: 0, tackles: 0, cleanSheets: 0, saves: 0, gamesPlayed: 0, motm: 0,
-        shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
-        fouls: 0, goalsConceded: 0, skillMoves: 0, bigChancesMissed: 0,
-        keyPasses: 0, sprints: 0,
-      };
-      allOtherCompleted.forEach((og) => {
-        const inA = (og.teamA?.players || []).includes(pid);
-        const inB = (og.teamB?.players || []).includes(pid);
-        if (!inA && !inB) return;
-        const ms = og.playerStats?.[pid] || {};
-        const isCS = (inA && +(og.teamB?.score || 0) === 0) || (inB && +(og.teamA?.score || 0) === 0);
-        otherDeltaSum += calculateRatingDelta(p, ms, isCS);
-        otherTotals.goals += ms.goals || 0;
-        otherTotals.assists += ms.assists || 0;
-        otherTotals.tackles += ms.tackles || 0;
-        otherTotals.cleanSheets += isCS ? 1 : 0;
-        otherTotals.saves += ms.saves || 0;
-        otherTotals.gamesPlayed += 1;
-        otherTotals.motm += og.motm === pid ? 1 : 0;
-        otherTotals.shots += ms.shots || 0;
-        otherTotals.shotsOnTarget += ms.shotsOnTarget || 0;
-        otherTotals.shotsOffTarget += ms.shotsOffTarget || 0;
-        otherTotals.interceptions += ms.interceptions || 0;
-        otherTotals.blocks += ms.blocks || 0;
-        otherTotals.fouls += ms.fouls || 0;
-        otherTotals.goalsConceded += ms.goalsConceded || ms.goalsConcededAsDF || 0;
-        otherTotals.skillMoves += ms.skillMoves || 0;
-        otherTotals.bigChancesMissed += ms.bigChancesMissed || 0;
-        otherTotals.keyPasses += ms.keyPasses || 0;
-        otherTotals.sprints += ms.sprints || 0;
-      });
-
-      const inOldA = (gw.teamA?.players || []).includes(pid);
-      const oldMs = gw.playerStats?.[pid] || {};
-      const oldIsCS = (inOldA && +(gw.teamB?.score || 0) === 0) || (!inOldA && +(gw.teamA?.score || 0) === 0);
-      const allCurrentDelta = otherDeltaSum + calculateRatingDelta(p, oldMs, oldIsCS);
-      const baseRating = p.baseRating ?? (p.rating - allCurrentDelta);
-
-      return {
-        id: pid,
-        updates: {
-          baseRating: p.baseRating ?? baseRating,
-          rating: clampRating(baseRating + otherDeltaSum),
-          attributes: calculateAttributes(otherTotals, p.attributes),
-          stats: {
-            goals: otherTotals.goals, assists: otherTotals.assists, tackles: otherTotals.tackles,
-            cleanSheets: otherTotals.cleanSheets, saves: otherTotals.saves,
-            gamesPlayed: otherTotals.gamesPlayed, motm: otherTotals.motm,
-            shots: otherTotals.shots, shotsOffTarget: otherTotals.shotsOffTarget,
-            skillMoves: otherTotals.skillMoves, bigChancesMissed: otherTotals.bigChancesMissed,
-          },
-        },
-      };
-    }).filter(Boolean);
+    const playerDiffs = buildPlayerDiffs(players, gameWeeks.filter((g) => g.id !== gw.id), gwPlayers);
 
     await deleteGameWeek(gw.id, playerDiffs);
     setDeleting(false);
@@ -174,7 +130,7 @@ export default function GameWeekManagerPage() {
   const openRecord = (gw) => {
     const all = [...(gw.teamA?.players || []), ...(gw.teamB?.players || [])];
     const playerPerf = {};
-    all.forEach((pid) => { playerPerf[pid] = EMPTY_PERF(); });
+    all.forEach((pid) => { playerPerf[pid] = { ...EMPTY_PERF(), position: players.find((p) => p.id === pid)?.position }; });
     setEditingGW(gw);
     setForm({ ...EMPTY_FORM(), teamAPlayers: gw.teamA?.players || [], teamBPlayers: gw.teamB?.players || [], teamASubs: gw.teamA?.subs || [], teamBSubs: gw.teamB?.subs || [], playerPerf });
     setMode('record');
@@ -188,7 +144,9 @@ export default function GameWeekManagerPage() {
       const ps = gw.playerStats?.[pid] || {};
       // backward compat: derive shotsOffTarget from shots - shotsOnTarget for old records
       const derivedSoF = ps.shotsOffTarget ?? Math.max(0, (ps.shots || 0) - (ps.shotsOnTarget || 0));
+      const pl = players.find((p) => p.id === pid);
       playerPerf[pid] = {
+        position: pl ? getMatchPosition(pl, ps) : ps.position,
         tackles: ps.tackles || 0, interceptions: ps.interceptions || 0,
         saves: ps.saves || 0, blocks: ps.blocks || 0,
         shotsOnTarget: ps.shotsOnTarget || 0, shotsOffTarget: derivedSoF,
@@ -223,6 +181,7 @@ export default function GameWeekManagerPage() {
       teamAStats: { corners: gw.teamA?.corners || 0 },
       teamBStats: { corners: gw.teamB?.corners || 0 },
       matchLink: gw.matchLink || '',
+      isRecorded: isGWRecorded(gw),
     });
     setMode('record');
   };
@@ -272,6 +231,7 @@ export default function GameWeekManagerPage() {
       const sot = +perf.shotsOnTarget || 0;
       const sof = +perf.shotsOffTarget || 0;
       const ms = {
+        position: perf.position || p.position,
         goals: g, assists: a, ownGoals: og,
         tackles: +perf.tackles || 0, interceptions: +perf.interceptions || 0,
         saves: +perf.saves || 0, blocks: +perf.blocks || 0,
@@ -282,7 +242,7 @@ export default function GameWeekManagerPage() {
         goalsConceded: inA ? teamBScore : teamAScore,
         goalsConcededAsGK: +perf.goalsConcededAsGK || 0,
       };
-      playerStats[pid] = { ...ms, matchRating: calculateMatchRating(p, ms, isCS) };
+      playerStats[pid] = { ...ms, matchRating: calculateMatchRating(p, ms, isCS, form.isRecorded) };
     });
 
     const motmCandidates = allMatchPlayers.map((pid) => {
@@ -290,7 +250,7 @@ export default function GameWeekManagerPage() {
       if (!p) return null;
       const inA = teamAPlayers.includes(pid);
       const isCS = (inA && +teamBScore === 0) || (!inA && +teamAScore === 0);
-      return { id: pid, position: p.position, matchRating: playerStats[pid]?.matchRating ?? 6, matchStats: playerStats[pid] || {}, isCleanSheet: isCS };
+      return { id: pid, position: getMatchPosition(p, playerStats[pid]), matchRating: playerStats[pid]?.matchRating ?? 6, matchStats: playerStats[pid] || {}, isCleanSheet: isCS };
     }).filter(Boolean);
     const motm = getManOfTheMatch(motmCandidates);
 
@@ -300,130 +260,17 @@ export default function GameWeekManagerPage() {
       teamB: { name: 'Team B', players: teamBPlayers, subs: teamBSubs, score: teamBScore, shots: teamBCS.shots, shotsOnTarget: teamBCS.shotsOnTarget, possession: 100 - possA, fouls: teamBCS.fouls, corners: teamBStats.corners || 0 },
       goals, events, playerStats, motm,
       matchLink: form.matchLink.trim() || null,
+      isRecorded: form.isRecorded,
     };
 
-    // Full recalculation — derive every player's rating and stats from scratch
+    // Full recalculation — replay every completed game week with this one's new result in place
     const isEditing = gwCompleted(editingGW);
-    const allOtherCompleted = gameWeeks.filter((gw) => gwCompleted(gw) && gw.id !== editingGW.id);
+    const savedGW = { ...editingGW, ...gwUpdates, status: 'completed', completed: true };
+    const nextGameWeeks = [...gameWeeks.filter((gw) => gw.id !== editingGW.id), savedGW];
     const oldMatchPlayers = isEditing ? [...(editingGW.teamA?.players || []), ...(editingGW.teamB?.players || [])] : [];
     const allAffected = [...new Set([...allMatchPlayers, ...oldMatchPlayers])];
 
-    const playerDiffs = allAffected.map((pid) => {
-      const p = players.find((pl) => pl.id === pid);
-      if (!p) return null;
-
-      let otherDeltaSum = 0;
-      const otherTotals = {
-        goals: 0, assists: 0, tackles: 0, cleanSheets: 0, saves: 0, gamesPlayed: 0, motm: 0,
-        shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
-        fouls: 0, goalsConceded: 0, skillMoves: 0, bigChancesMissed: 0,
-        keyPasses: 0, sprints: 0,
-      };
-      allOtherCompleted.forEach((gw) => {
-        const inA = (gw.teamA?.players || []).includes(pid);
-        const inB = (gw.teamB?.players || []).includes(pid);
-        if (!inA && !inB) return;
-        const ms = gw.playerStats?.[pid] || {};
-        const isCS = (inA && +(gw.teamB?.score || 0) === 0) || (inB && +(gw.teamA?.score || 0) === 0);
-        otherDeltaSum += calculateRatingDelta(p, ms, isCS);
-        otherTotals.goals += ms.goals || 0;
-        otherTotals.assists += ms.assists || 0;
-        otherTotals.tackles += ms.tackles || 0;
-        otherTotals.cleanSheets += isCS ? 1 : 0;
-        otherTotals.saves += ms.saves || 0;
-        otherTotals.gamesPlayed += 1;
-        otherTotals.motm += gw.motm === pid ? 1 : 0;
-        otherTotals.shots += ms.shots || 0;
-        otherTotals.shotsOnTarget += ms.shotsOnTarget || 0;
-        otherTotals.shotsOffTarget += ms.shotsOffTarget || 0;
-        otherTotals.interceptions += ms.interceptions || 0;
-        otherTotals.blocks += ms.blocks || 0;
-        otherTotals.fouls += ms.fouls || 0;
-        otherTotals.goalsConceded += ms.goalsConceded || ms.goalsConcededAsDF || 0;
-        otherTotals.skillMoves += ms.skillMoves || 0;
-        otherTotals.bigChancesMissed += ms.bigChancesMissed || 0;
-        otherTotals.keyPasses += ms.keyPasses || 0;
-        otherTotals.sprints += ms.sprints || 0;
-      });
-
-      const baseRating = p.baseRating ?? (() => {
-        let allCurrentDelta = otherDeltaSum;
-        if (isEditing) {
-          const inOldA = (editingGW.teamA?.players || []).includes(pid);
-          const inOldB = (editingGW.teamB?.players || []).includes(pid);
-          if (inOldA || inOldB) {
-            const oldMs = editingGW.playerStats?.[pid] || {};
-            const oldIsCS = (inOldA && +(editingGW.teamB?.score || 0) === 0) || (inOldB && +(editingGW.teamA?.score || 0) === 0);
-            allCurrentDelta += calculateRatingDelta(p, oldMs, oldIsCS);
-          }
-        }
-        return p.rating - allCurrentDelta;
-      })();
-
-      const inNewA = teamAPlayers.includes(pid);
-      const inNewB = teamBPlayers.includes(pid);
-      const isInNewMatch = inNewA || inNewB;
-      const newMs = playerStats[pid] || {};
-      const newIsCS = isInNewMatch && ((inNewA && +teamBScore === 0) || (inNewB && +teamAScore === 0));
-      const thisGWDelta = isInNewMatch ? calculateRatingDelta(p, newMs, newIsCS) : 0;
-      const thisGWTotals = isInNewMatch
-        ? {
-            goals: newMs.goals || 0, assists: newMs.assists || 0, tackles: newMs.tackles || 0,
-            cleanSheets: newIsCS ? 1 : 0, saves: newMs.saves || 0, gamesPlayed: 1, motm: pid === motm ? 1 : 0,
-            shots: newMs.shots || 0, shotsOnTarget: newMs.shotsOnTarget || 0, shotsOffTarget: newMs.shotsOffTarget || 0,
-            interceptions: newMs.interceptions || 0, blocks: newMs.blocks || 0,
-            fouls: newMs.fouls || 0, goalsConceded: newMs.goalsConceded || 0,
-            skillMoves: newMs.skillMoves || 0, bigChancesMissed: newMs.bigChancesMissed || 0,
-            keyPasses: newMs.keyPasses || 0, sprints: newMs.sprints || 0,
-          }
-        : {
-            goals: 0, assists: 0, tackles: 0, cleanSheets: 0, saves: 0, gamesPlayed: 0, motm: 0,
-            shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
-            fouls: 0, goalsConceded: 0, skillMoves: 0, bigChancesMissed: 0,
-            keyPasses: 0, sprints: 0,
-          };
-
-      const seasonTotals = {
-        goals: otherTotals.goals + thisGWTotals.goals,
-        assists: otherTotals.assists + thisGWTotals.assists,
-        shots: otherTotals.shots + thisGWTotals.shots,
-        shotsOnTarget: otherTotals.shotsOnTarget + thisGWTotals.shotsOnTarget,
-        shotsOffTarget: otherTotals.shotsOffTarget + thisGWTotals.shotsOffTarget,
-        tackles: otherTotals.tackles + thisGWTotals.tackles,
-        interceptions: otherTotals.interceptions + thisGWTotals.interceptions,
-        blocks: otherTotals.blocks + thisGWTotals.blocks,
-        fouls: otherTotals.fouls + thisGWTotals.fouls,
-        saves: otherTotals.saves + thisGWTotals.saves,
-        goalsConceded: otherTotals.goalsConceded + thisGWTotals.goalsConceded,
-        gamesPlayed: otherTotals.gamesPlayed + thisGWTotals.gamesPlayed,
-        skillMoves: otherTotals.skillMoves + thisGWTotals.skillMoves,
-        bigChancesMissed: otherTotals.bigChancesMissed + thisGWTotals.bigChancesMissed,
-        keyPasses: otherTotals.keyPasses + thisGWTotals.keyPasses,
-        sprints: otherTotals.sprints + thisGWTotals.sprints,
-      };
-
-      return {
-        id: pid,
-        updates: {
-          baseRating: p.baseRating ?? baseRating,
-          rating: clampRating(baseRating + otherDeltaSum + thisGWDelta),
-          attributes: calculateAttributes(seasonTotals, p.attributes),
-          stats: {
-            goals: seasonTotals.goals,
-            assists: seasonTotals.assists,
-            tackles: seasonTotals.tackles,
-            cleanSheets: otherTotals.cleanSheets + thisGWTotals.cleanSheets,
-            saves: seasonTotals.saves,
-            gamesPlayed: seasonTotals.gamesPlayed,
-            motm: otherTotals.motm + thisGWTotals.motm,
-            shots: seasonTotals.shots,
-            shotsOffTarget: seasonTotals.shotsOffTarget,
-            skillMoves: seasonTotals.skillMoves,
-            bigChancesMissed: seasonTotals.bigChancesMissed,
-          },
-        },
-      };
-    }).filter(Boolean);
+    const playerDiffs = buildPlayerDiffs(players, nextGameWeeks, allAffected);
 
     setSaving(true);
     await completeGameWeek(editingGW.id, gwUpdates, playerDiffs);
@@ -491,6 +338,7 @@ export default function GameWeekManagerPage() {
       { key: 'goalsConceded', label: 'GC', readOnly: true },
       { key: 'goalsConcededAsGK', label: 'GCK' },
     ];
+    const visibleFields = form.isRecorded ? PERF_FIELDS : [];
 
     return (
       <div>
@@ -503,6 +351,22 @@ export default function GameWeekManagerPage() {
         </div>
 
         <div className="space-y-6">
+          {/* Recording */}
+          <div className="gpl-card p-5 sm:p-6 flex items-center justify-between gap-4">
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-1">Camera Recorded</h3>
+              <p className="text-[11px] text-gpl-muted">
+                {form.isRecorded
+                  ? 'Full stats were captured from the recording.'
+                  : 'Goals only — just goals, assists, own goals and cards count. Ratings move at half weight and nobody is penalised for stats that weren\'t captured.'}
+              </p>
+            </div>
+            <button onClick={() => setF('isRecorded', !form.isRecorded)} role="switch" aria-checked={form.isRecorded}
+              className={`shrink-0 relative w-11 h-6 rounded-full transition-colors ${form.isRecorded ? 'bg-emerald-600' : 'bg-gpl-border'}`}>
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${form.isRecorded ? 'translate-x-5' : ''}`} />
+            </button>
+          </div>
+
           {/* Teams */}
           <div className="gpl-card p-5 sm:p-6">
             <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-4">Teams</h3>
@@ -519,10 +383,16 @@ export default function GameWeekManagerPage() {
                     {form[key].map((pid) => {
                       const pl = players.find((p) => p.id === pid);
                       const isSub = form[subsKey].includes(pid);
+                      const matchPos = form.playerPerf[pid]?.position || pl?.position;
+                      const outOfPosition = pl && matchPos !== pl.position;
                       return pl ? (
                         <div key={pid} className={`flex items-center gap-2 p-2 rounded-lg text-sm ${isSub ? 'bg-amber-500/10' : 'bg-gpl-inset'}`}>
                           <span className="font-medium text-gpl flex-1 truncate">{pl.name}</span>
-                          <span className="text-xs text-gpl-muted">{pl.position}</span>
+                          <select value={matchPos} onChange={(e) => updatePerf(pid, 'position', e.target.value)}
+                            title={outOfPosition ? `Usually plays ${pl.position}` : 'Position played this match'}
+                            className={`text-xs px-1.5 py-0.5 rounded-md gpl-input ${outOfPosition ? 'ring-1 ring-amber-500 text-amber-500 font-bold' : 'text-gpl-muted'}`}>
+                            {Object.keys(POSITIONS).map((pos) => <option key={pos} value={pos}>{pos}</option>)}
+                          </select>
                           <button onClick={() => toggleSub(subsKey, pid)}
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors ${isSub ? 'bg-amber-500/20 text-amber-500' : 'bg-gpl-border/30 text-gpl-muted hover:text-gpl'}`}>
                             {isSub ? 'SUB' : 'START'}
@@ -610,7 +480,7 @@ export default function GameWeekManagerPage() {
           {allMatchPlayers.length > 0 && (
             <div className="gpl-card p-5 sm:p-6">
               <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-1">Player Performance</h3>
-              <p className="text-[10px] text-gpl-muted mb-4">SoT = Shots on Target · SoF = Shots off Target · KP = Key Passes · Skl = Skill Moves · BCM = Big Chances Missed · Pace = Sprints/Take-Ons · GC = Goals Conceded (auto) · GCK = Goals Conceded as GK</p>
+              <p className="text-[10px] text-gpl-muted mb-4">{!form.isRecorded ? 'Goals-only game — only cards are entered here. Detailed stats are hidden and ignored.' : <>SoT = Shots on Target · SoF = Shots off Target · KP = Key Passes · Skl = Skill Moves · BCM = Big Chances Missed · Pace = Sprints/Take-Ons · GC = Goals Conceded (auto) · GCK = Goals Conceded as GK</>}</p>
               {[['teamAPlayers', '#ef4444', 'Team A', autoTeamBScore], ['teamBPlayers', '#3b82f6', 'Team B', autoTeamAScore]].map(([teamKey, color, label, teamGC]) => (
                 form[teamKey].length > 0 && (
                   <div key={teamKey} className="mb-5">
@@ -620,7 +490,7 @@ export default function GameWeekManagerPage() {
                         <thead>
                           <tr className="text-gpl-muted">
                             <th className="text-left font-medium pb-2 pr-3">Player</th>
-                            {PERF_FIELDS.map(({ key, label }) => (
+                            {visibleFields.map(({ key, label }) => (
                               <th key={key} className="font-medium pb-2 px-1 text-center">{label}</th>
                             ))}
                             <th className="font-medium pb-2 px-1 text-center">YC</th>
@@ -635,7 +505,7 @@ export default function GameWeekManagerPage() {
                             return (
                               <tr key={pid} className="border-t border-gpl-border">
                                 <td className="py-1.5 pr-3 font-medium text-gpl truncate max-w-25">{pl.name.split(' ').pop()}</td>
-                                {PERF_FIELDS.map(({ key, readOnly }) => (
+                                {visibleFields.map(({ key, readOnly }) => (
                                   <td key={key} className="py-1.5 px-1">
                                     {readOnly ? (
                                       <div className="w-9 px-1 py-1 rounded-lg bg-gpl-inset text-center text-xs text-gpl-muted select-none">{teamGC}</div>
@@ -781,7 +651,7 @@ export default function GameWeekManagerPage() {
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
                       <div className="text-xs text-gpl-muted">{gw.date}</div>
-                      <div className="text-lg font-bold text-gpl">Game Week {gw.weekNumber}</div>
+                      <div className="text-lg font-bold text-gpl">Game Week {gw.weekNumber}{!isGWRecorded(gw) && <span className="ml-2 align-middle text-[10px] font-bold px-2 py-0.5 rounded-full bg-gpl-border/30 text-gpl-muted">GOALS ONLY</span>}</div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div><span className="text-2xl font-black text-red-500">{gw.teamA.score}</span><span className="text-lg text-gpl-muted mx-2">-</span><span className="text-2xl font-black text-blue-500">{gw.teamB.score}</span></div>
