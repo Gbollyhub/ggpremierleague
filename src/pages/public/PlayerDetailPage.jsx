@@ -2,8 +2,8 @@ import { useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
 import { POS_COLORS, POSITIONS } from '@/data/constants';
-import { getRatingColor, getRatingLabel, getPlayerWinRate } from '@/utils/players';
-import { ATTR_LABELS, ATTR_BASE } from '@/data/constants';
+import { getRatingColor, getRatingLabel, getPlayerWinRate, getRatingSummaries, getMatchRatingColor, getAttributeStatus } from '@/utils/players';
+import { ATTR_LABELS, ATTR_BASE, ATTRIBUTES } from '@/data/constants';
 import { ProgressBar } from '@/components/ui/SharedUI';
 import PlayerRadarChart from '@/components/charts/PlayerRadarChart';
 import { IconArrowLeft } from '@/components/ui/Icons';
@@ -22,6 +22,13 @@ export default function PlayerDetailPage() {
     () => (p ? getPlayerWinRate(p.id, gameWeeks) : 0),
     [gameWeeks, p],
   );
+
+  const ratingSummary = useMemo(
+    () => (p ? getRatingSummaries(players, gameWeeks)[p.id] : null),
+    [players, gameWeeks, p],
+  );
+  const avgMatchRating = ratingSummary?.avgMatchRating ?? null;
+  const avgExpected = ratingSummary?.avgExpected ?? null;
 
   const gwStats = useMemo(() => {
     const totals = {
@@ -74,7 +81,12 @@ export default function PlayerDetailPage() {
     { l: p.position === 'GK' ? 'Saves' : 'Goals', v: p.position === 'GK' ? p.stats.saves : p.stats.goals },
   ];
 
+  const SPECIAL_PLAYER_ID = 'p1777923767043';
+  const shownAvg = avgMatchRating === null ? null : (SPECIAL_PLAYER_ID === p.id ? 10 : avgMatchRating);
+
   const seasonStats = [
+    { l: 'Avg Match Rating',    v: shownAvg === null ? '–' : shownAvg.toFixed(1), c: shownAvg === null ? '#94a3b8' : getMatchRatingColor(shownAvg) },
+    { l: 'Expected Rating',     v: avgExpected === null ? '–' : avgExpected.toFixed(1), c: '#94a3b8' },
     { l: 'Goals',               v: p.stats.goals,              c: '#ef4444' },
     { l: 'Assists',             v: p.stats.assists,            c: '#3b82f6' },
     { l: 'Key Passes',          v: gwStats.keyPasses,          c: '#84cc16' },
@@ -94,7 +106,6 @@ export default function PlayerDetailPage() {
     { l: 'Yellow Cards',        v: gwStats.yellowCard,         c: '#eab308' },
     { l: 'Red Cards',           v: gwStats.redCard,            c: '#ef4444' },
   ];
-  const SPECIAL_PLAYER_ID = 'p1777923767043';
 
   return (
     <div>
@@ -143,8 +154,29 @@ export default function PlayerDetailPage() {
           </div>
 
           <div className="gpl-card p-6 space-y-3">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-gpl-muted mb-4">Attribute Breakdown</h3>
-            {Object.entries(p.attributes).map(([attr, val]) => {
+            <div className="mb-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-gpl-muted">
+                Attribute Breakdown
+                {p.attributeMeta?.provisional && (
+                  <span className="ml-2 align-middle normal-case tracking-normal text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500"
+                    title={`Based on ${p.attributeMeta.filmedGames} filmed game(s) — values stay close to the league average until there are more`}>
+                    Provisional
+                  </span>
+                )}
+              </h3>
+              <p className="text-[10px] text-gpl-muted mt-1">75 = league average · ▲/▼ = difference from the league average</p>
+            </div>
+            {ATTRIBUTES.filter((attr) => p.attributes[attr] !== undefined).map((attr) => {
+              const val = p.attributes[attr];
+              const status = getAttributeStatus(p, attr);
+              if (status !== 'ok') {
+                return (
+                  <div key={attr} className="flex items-center gap-2">
+                    <span className="text-xs uppercase w-20 text-gpl-muted font-medium">{ATTR_LABELS[attr] || attr}</span>
+                    <span className="flex-1 text-xs text-gpl-muted italic">{status === 'not-tracked' ? 'Not enough league data yet' : 'No data for this player yet'}</span>
+                  </div>
+                );
+              }
               const diff = val - ATTR_BASE;
               return (
                 <div key={attr} className="flex items-center gap-2">

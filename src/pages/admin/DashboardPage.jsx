@@ -21,7 +21,7 @@ export default function DashboardPage() {
     setBackfilling(false);
   };
 
-  const needsBackfill = players.some((p) => p.attributes.gkDiving === undefined || p.attributes.gkReflexes === undefined);
+  const needsBackfill = players.some((p) => p.attributes.gkReflexes === undefined);
 
   const handleReset = async () => {
     setResetting(true);

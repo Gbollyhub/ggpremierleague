@@ -99,13 +99,12 @@ export const useStore = create((set, get) => ({
     try {
       const state = get();
       const toUpdate = state.players.filter(
-        (p) => p.attributes.gkDiving === undefined || p.attributes.gkReflexes === undefined
+        (p) => p.attributes.gkReflexes === undefined
       );
       if (toUpdate.length === 0) { state.addToast('All players already up to date', 'info'); return; }
       const batch = writeBatch(db);
       for (const p of toUpdate) {
         batch.update(doc(db, 'players', p.id), {
-          'attributes.gkDiving': p.attributes.gkDiving ?? 75,
           'attributes.gkReflexes': p.attributes.gkReflexes ?? 75,
         });
       }
@@ -136,8 +135,8 @@ export const useStore = create((set, get) => ({
       const { players: replayed, matches } = replaySeason(players, gameWeeks);
       const batch = writeBatch(db);
       for (const p of players) {
-        const { baseRating, rating, attributes, stats } = replayed[p.id];
-        batch.update(doc(db, 'players', p.id), { baseRating, rating, attributes, stats });
+        const { baseRating, rating, attributes, attributeMeta, stats } = replayed[p.id];
+        batch.update(doc(db, 'players', p.id), { baseRating, rating, attributes, attributeMeta, stats });
       }
       // Refresh stored match ratings that were saved under older formulas
       for (const gw of gameWeeks) {

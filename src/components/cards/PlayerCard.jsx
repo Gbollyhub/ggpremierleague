@@ -1,10 +1,12 @@
 import { POS_COLORS, POSITIONS } from '@/data/constants';
-import { getRatingColor, getRatingLabel } from '@/utils/players';
+import { getRatingColor, getRatingLabel, getMatchRatingColor, getAttributeStatus } from '@/utils/players';
 import { IconStar } from '@/components/ui/Icons';
 
-export default function PlayerCard({ player, onClick }) {
+export default function PlayerCard({ player, ratingSummary, onClick }) {
   const posColor = POS_COLORS[player.position];
   const SPECIAL_PLAYER_ID = 'p1777923767043';
+  const avgMatchRating = ratingSummary?.avgMatchRating ?? null;
+  const avgExpected = ratingSummary?.avgExpected ?? null;
 
   return (
     <div
@@ -46,17 +48,31 @@ export default function PlayerCard({ player, onClick }) {
           </div>
 
           <h3 className="text-lg font-bold text-gpl mb-0.5 truncate">{player.name}</h3>
-          <div className="text-xs text-gpl-muted mb-3">{POSITIONS[player.position]}</div>
+          <div className="text-xs text-gpl-muted mb-3">
+            {POSITIONS[player.position]}
+            {player.attributeMeta?.provisional && (
+              <span className="ml-1.5 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-500"
+                title={`Attributes based on ${player.attributeMeta.filmedGames} filmed game(s) — still close to the league average`}>
+                Provisional
+              </span>
+            )}
+          </div>
 
           {/* Quick stats */}
-          <div className="grid grid-cols-3 gap-2 mb-3">
+          <div className="grid grid-cols-5 gap-1.5 mb-3">
             {[
               { l: player.position === 'GK' ? 'SVS' : 'GOL', v: player.position === 'GK' ? player.stats.saves : player.stats.goals },
               { l: player.position === 'GK' ? 'CS' : 'AST', v: player.position === 'GK' ? player.stats.cleanSheets : player.stats.assists },
               { l: 'GP', v: player.stats.gamesPlayed },
+              {
+                l: 'AVG',
+                v: avgMatchRating === null ? '–' : (SPECIAL_PLAYER_ID === player.id ? 10 : avgMatchRating).toFixed(1),
+                c: avgMatchRating === null ? undefined : getMatchRatingColor(SPECIAL_PLAYER_ID === player.id ? 10 : avgMatchRating),
+              },
+              { l: 'EXP', v: avgExpected === null ? '–' : avgExpected.toFixed(1), t: 'Average expected match rating — the bar this player is judged against' },
             ].map((s) => (
-              <div key={s.l} className="text-center py-1.5 px-1 rounded-lg" style={{ background: `${posColor}10` }}>
-                <div className="text-base font-bold text-gpl">{s.v}</div>
+              <div key={s.l} title={s.t} className="text-center py-1.5 px-1 rounded-lg" style={{ background: `${posColor}10` }}>
+                <div className="text-base font-bold text-gpl" style={s.c ? { color: s.c } : undefined}>{s.v}</div>
                 <div className="text-[10px] text-gpl-muted uppercase">{s.l}</div>
               </div>
             ))}
@@ -64,18 +80,27 @@ export default function PlayerCard({ player, onClick }) {
 
           {/* Attribute bars */}
           <div className="space-y-1.5">
-            {['pace', 'finishing', 'passing', 'defending', 'physical'].map((attr) => (
-              <div key={attr} className="flex items-center gap-2">
-                <span className="text-[10px] uppercase w-8 text-gpl-muted font-medium">{attr.slice(0, 3)}</span>
-                <div className="flex-1 h-1.5 rounded-full bg-gpl-inset overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{ width: `${player.attributes[attr] ?? 75}%`, background: `linear-gradient(90deg, ${posColor}, ${posColor}aa)` }}
-                  />
+            {['pace', 'finishing', 'passing', 'defending', 'physical', 'dribbling']
+              .filter((attr) => getAttributeStatus(player, attr) !== 'not-tracked')
+              .slice(0, 5)
+              .map((attr) => {
+              const hasData = getAttributeStatus(player, attr) === 'ok';
+              const val = player.attributes[attr] ?? 75;
+              return (
+                <div key={attr} className="flex items-center gap-2">
+                  <span className="text-[10px] uppercase w-8 text-gpl-muted font-medium">{attr.slice(0, 3)}</span>
+                  <div className="flex-1 h-1.5 rounded-full bg-gpl-inset overflow-hidden">
+                    {hasData && (
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{ width: `${val}%`, background: `linear-gradient(90deg, ${posColor}, ${posColor}aa)` }}
+                      />
+                    )}
+                  </div>
+                  <span className="text-[10px] font-bold text-gpl w-5 text-right">{hasData ? val : '–'}</span>
                 </div>
-                <span className="text-[10px] font-bold text-gpl w-5 text-right">{player.attributes[attr] ?? 75}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {player.playstyles?.length > 0 && (

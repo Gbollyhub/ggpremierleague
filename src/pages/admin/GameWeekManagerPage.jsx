@@ -15,17 +15,21 @@ const EMPTY_PERF = () => ({
   yellowCard: false, redCard: false,
 });
 
-// Ratings are league-relative, so replaying after any change can move every player's rating.
-// Players in the changed match get a full rebuild; everyone else only gets their rating
-// (attributes are smoothed toward each new value, so rewriting them unnecessarily would drift them).
-function buildPlayerDiffs(players, nextGameWeeks, affectedIds) {
+// Ratings and attributes are league-relative, so replaying after any change can move every player.
+// The replay is deterministic, so only fields whose value actually changed are written.
+const REPLAYED_FIELDS = ['baseRating', 'rating', 'attributes', 'attributeMeta', 'stats'];
+// Firestore returns map keys in its own order, so compare with keys sorted
+const stableStringify = (v) => (v && typeof v === 'object' && !Array.isArray(v)
+  ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(v[k])}`).join(',')}}`
+  : JSON.stringify(v));
+function buildPlayerDiffs(players, nextGameWeeks) {
   const replay = replaySeason(players, nextGameWeeks).players;
-  const affected = new Set(affectedIds);
   return players.map((p) => {
     const next = replay[p.id];
-    if (affected.has(p.id)) return { id: p.id, updates: next };
-    if (next.rating !== p.rating) return { id: p.id, updates: { rating: next.rating } };
-    return null;
+    const updates = Object.fromEntries(REPLAYED_FIELDS
+      .filter((f) => stableStringify(next[f]) !== stableStringify(p[f]))
+      .map((f) => [f, next[f]]));
+    return Object.keys(updates).length ? { id: p.id, updates } : null;
   }).filter(Boolean);
 }
 
@@ -101,8 +105,7 @@ export default function GameWeekManagerPage() {
   // ── Delete completed GW + reverse player contributions ───────────────────
   const handleDelete = async (gw) => {
     setDeleting(true);
-    const gwPlayers = [...(gw.teamA?.players || []), ...(gw.teamB?.players || [])];
-    const playerDiffs = buildPlayerDiffs(players, gameWeeks.filter((g) => g.id !== gw.id), gwPlayers);
+    const playerDiffs = buildPlayerDiffs(players, gameWeeks.filter((g) => g.id !== gw.id));
 
     await deleteGameWeek(gw.id, playerDiffs);
     setDeleting(false);
@@ -267,10 +270,8 @@ export default function GameWeekManagerPage() {
     const isEditing = gwCompleted(editingGW);
     const savedGW = { ...editingGW, ...gwUpdates, status: 'completed', completed: true };
     const nextGameWeeks = [...gameWeeks.filter((gw) => gw.id !== editingGW.id), savedGW];
-    const oldMatchPlayers = isEditing ? [...(editingGW.teamA?.players || []), ...(editingGW.teamB?.players || [])] : [];
-    const allAffected = [...new Set([...allMatchPlayers, ...oldMatchPlayers])];
 
-    const playerDiffs = buildPlayerDiffs(players, nextGameWeeks, allAffected);
+    const playerDiffs = buildPlayerDiffs(players, nextGameWeeks);
 
     setSaving(true);
     await completeGameWeek(editingGW.id, gwUpdates, playerDiffs);

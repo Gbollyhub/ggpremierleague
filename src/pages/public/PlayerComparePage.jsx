@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useStore } from '@/store/useStore';
 import { POS_COLORS, POSITIONS } from '@/data/constants';
-import { getRatingColor, getRatingLabel, getPlayerWinRate } from '@/utils/players';
+import { getRatingColor, getRatingLabel, getPlayerWinRate, getRatingSummaries, getAttributeStatus } from '@/utils/players';
 import { ATTR_LABELS } from '@/data/constants';
 
 const SPECIAL_PLAYER_ID = 'p1777923767043';
@@ -12,18 +12,21 @@ function win(a, b) {
   return 'draw';
 }
 
-function CompareRow({ label, valA, valB, suffix = '', isHigherBetter = true }) {
-  const result = isHigherBetter ? win(valA, valB) : win(valB, valA);
+// isHigherBetter: true / false, or null for a neutral row with no winner highlighted
+function CompareRow({ label, valA, valB, suffix = '', isHigherBetter = true, format = (v) => v }) {
+  const result = isHigherBetter === null || valA === '–' || valB === '–'
+    ? 'draw'
+    : isHigherBetter ? win(valA, valB) : win(valB, valA);
   return (
     <div className="flex items-center gap-3 py-2.5 border-t border-gpl-border first:border-0">
       <span className={`w-14 text-right text-sm font-bold tabular-nums ${result === 'a' ? 'text-gpl' : 'text-gpl-muted'}`}>
-        {valA}{suffix}
+        {format(valA)}{suffix}
         {result === 'a' && <span className="ml-1 text-emerald-500 text-xs">▲</span>}
       </span>
       <span className="text-xs text-gpl-muted flex-1 text-center whitespace-nowrap">{label}</span>
       <span className={`w-14 text-left text-sm font-bold tabular-nums ${result === 'b' ? 'text-gpl' : 'text-gpl-muted'}`}>
         {result === 'b' && <span className="mr-1 text-emerald-500 text-xs">▲</span>}
-        {valB}{suffix}
+        {format(valB)}{suffix}
       </span>
     </div>
   );
@@ -88,6 +91,21 @@ export default function PlayerComparePage() {
 
   const gwStatsA = useMemo(() => pA ? aggregateGWStats(pA.id, gameWeeks) : {}, [pA, gameWeeks]);
   const gwStatsB = useMemo(() => pB ? aggregateGWStats(pB.id, gameWeeks) : {}, [pB, gameWeeks]);
+
+  const ratingSummaries = useMemo(() => getRatingSummaries(players, gameWeeks), [players, gameWeeks]);
+  const matchRatingRows = (p) => {
+    const s = ratingSummaries[p.id] || {};
+    const avg = s.avgMatchRating == null ? null : (SPECIAL_PLAYER_ID === p.id ? 10 : s.avgMatchRating);
+    const exp = s.avgExpected ?? null;
+    return {
+      avg: avg === null ? '–' : +avg.toFixed(1),
+      exp: exp === null ? '–' : +exp.toFixed(1),
+      diff: avg === null || exp === null ? '–' : +(avg - exp).toFixed(2),
+    };
+  };
+  const mrA = pA ? matchRatingRows(pA) : null;
+  const mrB = pB ? matchRatingRows(pB) : null;
+  const fmtDiff = (d) => (d === '–' ? d : `${d > 0 ? '+' : ''}${d.toFixed(2)}`);
 
   const colorA = pA ? POS_COLORS[pA.position] : '#3b82f6';
   const colorB = pB ? POS_COLORS[pB.position] : '#ef4444';
@@ -166,11 +184,22 @@ export default function PlayerComparePage() {
             <CompareRow label="Win Rate" valA={winRateA} valB={winRateB} suffix="%" />
           </div>
 
+          {/* Match ratings */}
+          <div className="gpl-card p-5">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-1 text-center">Match Ratings</h3>
+            <p className="text-[10px] text-gpl-muted text-center mb-3">Expected = the bar each match was judged against (position, player level and the game itself)</p>
+            <CompareRow label="Avg Match Rating" valA={mrA.avg} valB={mrB.avg} />
+            <CompareRow label="Expected Rating" valA={mrA.exp} valB={mrB.exp} isHigherBetter={null} />
+            <CompareRow label="vs Expected" valA={mrA.diff} valB={mrB.diff} format={fmtDiff} />
+          </div>
+
           {/* Attributes */}
           <div className="gpl-card p-5">
             <h3 className="text-xs font-bold uppercase tracking-wider text-gpl-muted mb-3 text-center">Attributes</h3>
             {attrs.map((a) => (
-              <CompareRow key={a} label={ATTR_LABELS[a] || a} valA={pA.attributes[a] ?? 0} valB={pB.attributes[a] ?? 0} />
+              <CompareRow key={a} label={ATTR_LABELS[a] || a}
+                valA={getAttributeStatus(pA, a) === 'ok' ? (pA.attributes[a] ?? '–') : '–'}
+                valB={getAttributeStatus(pB, a) === 'ok' ? (pB.attributes[a] ?? '–') : '–'} />
             ))}
           </div>
 

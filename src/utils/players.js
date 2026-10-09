@@ -160,41 +160,184 @@ export function calculateRatingDelta(matchRating, expectedMatchRating) {
   return Math.round((matchRating - expectedMatchRating) * DELTA_SCALE * SMOOTHING_FACTOR * 100) / 100;
 }
 
-// Each attribute blends 25% toward the newly calculated value from the player's current value.
-// This prevents single-game spikes and makes attributes drift gradually toward true season form.
-const ATTR_SMOOTH = 0.25;
+// ── Attributes ──────────────────────────────────────────────────────────────
+// Attributes describe *skills*, measured relative to the league, and are rebuilt from scratch on
+// every replay (no dependence on previous values, so they're always reproducible).
+// Each attribute blends a few components (a per-game rate or a per-shot ratio). Each component uses
+// empirical Bayes, so the data decides how much of a player's number is ability vs. luck:
+//   talentVar  = spread of raw rates among well-sampled players − spread that chance alone produces
+//                (chance for per-game stats = this league's measured game-to-game variation ÷ games;
+//                 for per-shot ratios = binomial p(1−p) ÷ attempts)
+//   reliability_i = talentVar / (talentVar + chanceVar_i)      (more games → closer to 1)
+//   estimate_i = leagueRate + reliability_i × (raw_i − leagueRate)
+//   z_i        = (estimate_i − leagueRate) / √talentVar
+// Components are blended with signed weights, scaled so 8 points = 1 SD of ability, around 75.
+// 75 = league average; ~83 = top ~15%; ~91 = top ~2%; clamped to 50–99.
+// Only the player's own actions count — team goals conceded is not individual defending.
+const ATTR_SD_POINTS = 8;
+const MIN_LEAGUE_EVENTS = 30;    // a per-game stat logged fewer times than this league-wide is too sparse to rate
+const QUALIFY_FILMED_GAMES = 3;  // sample needed to help measure the league spread
+const QUALIFY_SHOTS_FACED = 5;
+const PROVISIONAL_FILMED_GAMES = 4;
 
-export function calculateAttributes(seasonStats, currentAttrs = {}) {
-  const {
-    goals = 0, assists = 0, shots = 0, shotsOnTarget = 0,
-    tackles = 0, interceptions = 0, blocks = 0, fouls = 0,
-    saves = 0, goalsConceded = 0, goalsConcededAsGK = 0, gamesPlayed = 0,
-    skillMoves = 0, bigChancesMissed = 0, keyPasses = 0, sprints = 0,
-    recordedGames = gamesPlayed,
-  } = seasonStats;
+// Each component has a signed weight (negative = fewer is better) and is either
+//   kind 'rate'  — a per-game value read from each game's stats, over filmed games or all games
+//                  (goals/assists are known in every game; everything else only when filmed), or
+//   kind 'ratio' — successes / attempts summed from the season totals.
+const filmed = (value) => ({ kind: 'rate', scope: 'filmed', value });
+const ATTRIBUTE_MODEL = {
+  finishing: [
+    { kind: 'rate', scope: 'all', value: (ms) => ms.goals || 0, w: 0.35 },
+    { kind: 'ratio', get: (t) => [t.attrGoals, t.attrShots], w: 0.35 },             // conversion
+    { kind: 'ratio', get: (t) => [t.attrShotsOnTarget, t.attrShots], w: 0.15 },     // accuracy
+    { ...filmed((ms) => ms.bigChancesMissed || 0), w: -0.15 },
+  ],
+  passing: [
+    { kind: 'rate', scope: 'all', value: (ms) => ms.assists || 0, w: 0.6 },
+    { ...filmed((ms) => ms.keyPasses || 0), w: 0.4 },
+  ],
+  dribbling: [
+    { ...filmed((ms) => ms.skillMoves || 0), w: 1 },
+  ],
+  defending: [
+    { ...filmed((ms) => (ms.interceptions || 0) + (ms.tackles || 0) + (ms.blocks || 0)), w: 0.85 },
+    { ...filmed((ms) => ms.fouls || 0), w: -0.15 },
+  ],
+  physical: [
+    { ...filmed((ms) => ms.tackles || 0), w: 0.45 },
+    { ...filmed((ms) => ms.blocks || 0), w: 0.35 },
+    { ...filmed((ms) => ms.fouls || 0), w: -0.2 },
+  ],
+  pace: [
+    { ...filmed((ms) => ms.sprints || 0), w: 1 },
+  ],
+  gkReflexes: [
+    { kind: 'ratio', get: (t) => [t.keeperSaves, t.keeperSaves + t.keeperConceded], w: 1 }, // save %
+  ],
+};
 
-  // Goals, assists and goals conceded are known for every game; everything else only for
-  // camera-recorded games, so those are averaged over recorded games (rgp) only.
-  const gp = Math.max(gamesPlayed, 1);
-  const rgp = Math.max(recordedGames, 1);
-  const shotAccuracy = shots > 0 ? shotsOnTarget / shots : 0;
-  const missRate     = shots > 0 ? Math.max(0, shots - shotsOnTarget) / shots : 0;
+const mean = (xs) => xs.reduce((s, x) => s + x, 0) / xs.length;
+const variance = (xs) => {
+  if (xs.length < 2) return 0;
+  const m = mean(xs);
+  return xs.reduce((s, x) => s + (x - m) ** 2, 0) / (xs.length - 1);
+};
+const correlation = (xs, ys) => {
+  const mx = mean(xs), my = mean(ys);
+  let sxy = 0, sxx = 0, syy = 0;
+  xs.forEach((x, i) => { sxy += (x - mx) * (ys[i] - my); sxx += (x - mx) ** 2; syy += (ys[i] - my) ** 2; });
+  return sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : 0;
+};
 
-  const smooth = (key, raw) => {
-    const current = currentAttrs[key] ?? ATTR_BASE;
-    const blended = current + (raw - current) * ATTR_SMOOTH;
-    return Math.max(MIN_RATING, Math.min(MAX_RATING, Math.round(blended)));
+// For a per-game component: each player's list of per-game values.
+function perGameValues(t, { scope, value }) {
+  return (scope === 'all' ? t.gameLog : t.gameLog.filter((g) => g.isRecorded)).map((g) => value(g.ms));
+}
+
+// One component → { [id]: z } on the ability scale, or null if it can't separate players
+// (too sparse, too few qualified players, or all differences explainable by chance).
+function componentScores(ids, totalsById, qualifiedIds, component) {
+  let n, raw, league, chanceVar;
+  if (component.kind === 'rate') {
+    const vals = Object.fromEntries(ids.map((id) => [id, perGameValues(totalsById[id], component)]));
+    const sumAll = ids.reduce((s, id) => s + vals[id].reduce((a, v) => a + v, 0), 0);
+    const nAll = ids.reduce((s, id) => s + vals[id].length, 0);
+    if (!nAll || sumAll < MIN_LEAGUE_EVENTS) return null;
+    league = sumAll / nAll;
+    // Game-to-game variation within players, pooled across the league (one-way ANOVA within-group variance)
+    let ss = 0, dof = 0;
+    ids.forEach((id) => {
+      const v = vals[id];
+      if (v.length < 2) return;
+      const m = mean(v);
+      ss += v.reduce((a, x) => a + (x - m) ** 2, 0);
+      dof += v.length - 1;
+    });
+    const withinVar = dof > 0 ? ss / dof : league; // fallback: Poisson
+    n = (id) => vals[id].length;
+    raw = (id) => (vals[id].length ? mean(vals[id]) : league);
+    chanceVar = (id) => (n(id) > 0 ? withinVar / n(id) : Infinity);
+  } else {
+    const pairs = Object.fromEntries(ids.map((id) => [id, component.get(totalsById[id])]));
+    const sumNum = ids.reduce((s, id) => s + pairs[id][0], 0);
+    const sumDen = ids.reduce((s, id) => s + pairs[id][1], 0);
+    if (sumDen <= 0) return null;
+    league = sumNum / sumDen;
+    n = (id) => pairs[id][1];
+    raw = (id) => (pairs[id][1] > 0 ? pairs[id][0] / pairs[id][1] : league);
+    chanceVar = (id) => (n(id) > 0 ? (league * (1 - league)) / n(id) : Infinity);
+  }
+  if (qualifiedIds.length < 3) return null;
+  const talentVar = variance(qualifiedIds.map(raw)) - mean(qualifiedIds.map(chanceVar));
+  if (!(talentVar > 1e-12)) return null;
+  const talentSd = Math.sqrt(talentVar);
+  return Object.fromEntries(ids.map((id) => {
+    const reliability = talentVar / (talentVar + chanceVar(id)); // 0 when no sample
+    return [id, (reliability * (raw(id) - league)) / talentSd];
+  }));
+}
+
+// totalsById: { [playerId]: season totals from replaySeason }
+// Returns { [playerId]: { attributes, attributeMeta } }
+export function calculateLeagueAttributes(totalsById) {
+  const ids = Object.keys(totalsById);
+  const untracked = [];
+  const isQualified = {
+    default: (t) => t.recordedGames >= QUALIFY_FILMED_GAMES,
+    gkReflexes: (t) => t.keeperSaves + t.keeperConceded >= QUALIFY_SHOTS_FACED,
   };
 
-  return {
-    pace:       smooth('pace',       ATTR_BASE + (sprints / rgp) * 2),
-    finishing:  smooth('finishing',  ATTR_BASE + (goals / gp) * 7 + shotAccuracy * 8 - missRate * 4 - (bigChancesMissed / rgp) * 2),
-    dribbling:  smooth('dribbling',  ATTR_BASE + (skillMoves / rgp) * 8),
-    passing:    smooth('passing',    ATTR_BASE + (assists / gp) * 8 + (keyPasses / rgp) * 3 + (shotsOnTarget / rgp) * 1.5),
-    physical:   smooth('physical',   ATTR_BASE + (tackles / rgp) * 1.5 - (fouls / rgp) * 2),
-    defending:  smooth('defending',  ATTR_BASE + (interceptions / rgp) * 1.0 + (tackles / rgp) * 0.7 + (blocks / rgp) * 0.5 - (fouls / rgp) * 1.5 - (goalsConceded / gp) * 1.5),
-    gkReflexes: smooth('gkReflexes', ATTR_BASE + (saves / rgp) * 3 - (goalsConcededAsGK / rgp) * 1.5),
-  };
+  const attrValues = {};
+  for (const [attr, components] of Object.entries(ATTRIBUTE_MODEL)) {
+    const qualifiedIds = ids.filter((id) => (isQualified[attr] || isQualified.default)(totalsById[id]));
+    const used = components
+      .map((c) => ({ w: c.w, z: componentScores(ids, totalsById, qualifiedIds, c) }))
+      .filter((c) => c.z);
+    if (!used.length) {
+      untracked.push(attr);
+      attrValues[attr] = Object.fromEntries(ids.map((id) => [id, ATTR_BASE]));
+      continue;
+    }
+    // Blend, then divide by the blend's own ability SD: √(Σᵢ Σⱼ wᵢ wⱼ ρᵢⱼ), with ρ measured among
+    // qualified players — so every attribute uses the same 8-points-per-SD scale.
+    const blendVar = used.reduce((s, a) => s + used.reduce((t, b) => t + a.w * b.w * (a === b ? 1
+      : correlation(qualifiedIds.map((id) => a.z[id]), qualifiedIds.map((id) => b.z[id]))), 0), 0);
+    const blendSd = Math.sqrt(Math.max(blendVar, 1e-12));
+    attrValues[attr] = Object.fromEntries(ids.map((id) => {
+      const blend = used.reduce((s, c) => s + c.w * c.z[id], 0) / blendSd;
+      return [id, clampRating(ATTR_BASE + blend * ATTR_SD_POINTS)];
+    }));
+  }
+
+  return Object.fromEntries(ids.map((id) => {
+    const t = totalsById[id];
+    const shotsFaced = t.keeperSaves + t.keeperConceded;
+    const attributes = Object.fromEntries(Object.keys(ATTRIBUTE_MODEL).map((attr) => [attr, attrValues[attr][id]]));
+    if (shotsFaced === 0) attributes.gkReflexes = ATTR_BASE;
+    return [id, {
+      attributes,
+      attributeMeta: {
+        gamesPlayed: t.gamesPlayed,
+        filmedGames: t.recordedGames,
+        shotsFaced,
+        untracked,
+        provisional: t.recordedGames < PROVISIONAL_FILMED_GAMES,
+      },
+    }];
+  }));
+}
+
+// UI helper: whether an attribute value is backed by data for this player.
+// 'ok' | 'not-tracked' (not enough league-wide data to rate anyone yet) | 'no-data' (player has no sample)
+// Finishing and passing include goals/assists, known for every game; the rest need filmed games.
+const ATTRS_FROM_ALL_GAMES = ['finishing', 'passing'];
+export function getAttributeStatus(player, attr) {
+  const meta = player.attributeMeta;
+  if (!meta) return 'ok'; // legacy docs from before attribute metadata existed
+  if (meta.untracked?.includes(attr)) return 'not-tracked';
+  if (attr === 'gkReflexes') return meta.shotsFaced > 0 ? 'ok' : 'no-data';
+  if (ATTRS_FROM_ALL_GAMES.includes(attr)) return meta.gamesPlayed > 0 ? 'ok' : 'no-data';
+  return meta.filmedGames > 0 ? 'ok' : 'no-data';
 }
 
 const isGWCompleted = (gw) => gw.status === 'completed' || gw.completed === true;
@@ -216,9 +359,13 @@ const EMPTY_TOTALS = () => ({
   shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
   fouls: 0, goalsConceded: 0, goalsConcededAsGK: 0, skillMoves: 0, bigChancesMissed: 0,
   keyPasses: 0, sprints: 0, recordedGames: 0,
+  // Attribute-only inputs (filmed games): shots with goals counted as on target, time in goal
+  attrGoals: 0, attrShots: 0, attrShotsOnTarget: 0, keeperSaves: 0, keeperConceded: 0,
+  gameLog: [], // [{ ms, isRecorded }] — per-game values for the attribute model
 });
 
-function addToTotals(totals, ms, isCS, isMotm, isRecorded) {
+function addToTotals(totals, ms, isCS, isMotm, isRecorded, position) {
+  totals.gameLog.push({ ms, isRecorded });
   totals.goals += ms.goals || 0;
   totals.assists += ms.assists || 0;
   totals.cleanSheets += isCS ? 1 : 0;
@@ -240,12 +387,37 @@ function addToTotals(totals, ms, isCS, isMotm, isRecorded) {
   totals.bigChancesMissed += ms.bigChancesMissed || 0;
   totals.keyPasses += ms.keyPasses || 0;
   totals.sprints += ms.sprints || 0;
+
+  // A goal is always a shot on target, even if it wasn't also entered as one.
+  const goals = ms.goals || 0;
+  const sot = Math.max(ms.shotsOnTarget || 0, goals);
+  const shots = Math.max((ms.shotsOnTarget || 0) + (ms.shotsOffTarget || 0), ms.shots || 0, sot);
+  totals.attrGoals += goals;
+  totals.attrShots += shots;
+  totals.attrShotsOnTarget += sot;
+
+  // Keepers rotate, so time in goal is any game with saves or goals conceded in goal. A stint only
+  // counts when goals conceded in goal is actually known: entered as "conceded as GK", the match
+  // keeper (falls back to the team total), or a clean sheet. Outfielders with saves but a blank
+  // "conceded as GK" are skipped — treating blank as 0 would make them look perfect.
+  const saves = ms.saves || 0;
+  const gck = ms.goalsConcededAsGK || 0;
+  const teamConceded = ms.goalsConceded || 0;
+  if (saves > 0 || gck > 0 || position === 'GK') {
+    let conceded = null;
+    if (gck > 0) conceded = gck;
+    else if (position === 'GK' || teamConceded === 0) conceded = teamConceded;
+    if (conceded !== null) {
+      totals.keeperSaves += saves;
+      totals.keeperConceded += conceded;
+    }
+  }
 }
 
 // Replays every completed game week in order for the whole league and rebuilds each player's
 // rating, season stats and attributes from their baseRating. Ratings are league-relative, so a
 // change to any game week can shift every player's rating — always replay the full set.
-// Returns { players: { [id]: { baseRating, rating, attributes, stats } },
+// Returns { players: { [id]: { baseRating, rating, attributes, attributeMeta, stats } },
 //           matches: { [gwId]: { [playerId]: { matchRating, expected, delta } } } }
 export function replaySeason(players, gameWeeks) {
   const byId = Object.fromEntries(players.map((p) => [p.id, p]));
@@ -303,16 +475,17 @@ export function replaySeason(players, gameWeeks) {
     deltas.forEach(([pid, delta]) => {
       running[pid] = Math.min(MAX_RATING, Math.max(MIN_RATING, running[pid] + delta));
     });
-    entries.forEach(({ pid, ms, isCS }) => addToTotals(totals[pid], ms, isCS, gw.motm === pid, isRecorded));
+    entries.forEach(({ pid, ms, isCS, pos }) => addToTotals(totals[pid], ms, isCS, gw.motm === pid, isRecorded, pos));
   }
 
+  const leagueAttributes = calculateLeagueAttributes(totals);
   const result = {};
   for (const p of players) {
     const t = totals[p.id];
     result[p.id] = {
       baseRating: p.baseRating ?? p.rating,
       rating: clampRating(running[p.id]),
-      attributes: calculateAttributes(t, p.attributes),
+      ...leagueAttributes[p.id],
       stats: {
         goals: t.goals, assists: t.assists, tackles: t.tackles,
         cleanSheets: t.cleanSheets, saves: t.saves,
@@ -333,6 +506,36 @@ export function calculateWinProbability(avgA, avgB) {
   const teamA = Math.round((0.5 + advantage) * remaining);
   const teamB = remaining - teamA;
   return { teamA, draw, teamB };
+}
+
+// Per-player season averages of match rating and expected match rating (the bar each match was
+// judged against in replaySeason), over the same matches. Goals-only games are weighted the same way
+// they count toward the overall rating (UNRECORDED_WEIGHT), so avgMatchRating − avgExpected moves in
+// line with the overall rating. Values are null for players with no games.
+// Returns { [playerId]: { avgMatchRating, avgExpected, games } }
+export function getRatingSummaries(players, gameWeeks) {
+  const { matches } = replaySeason(players, gameWeeks);
+  const acc = Object.fromEntries(players.map((p) => [p.id, { mr: 0, exp: 0, w: 0, games: 0 }]));
+  gameWeeks.filter(isGWCompleted).forEach((gw) => {
+    const weight = isGWRecorded(gw) ? 1 : UNRECORDED_WEIGHT;
+    Object.entries(matches[gw.id] || {}).forEach(([pid, m]) => {
+      if (!acc[pid]) return;
+      acc[pid].mr += m.matchRating * weight; acc[pid].exp += m.expected * weight;
+      acc[pid].w += weight; acc[pid].games += 1;
+    });
+  });
+  const round = (v) => Math.round(v * 100) / 100;
+  return Object.fromEntries(Object.entries(acc).map(([pid, { mr, exp, w, games }]) => [pid, {
+    avgMatchRating: games ? round(mr / w) : null,
+    avgExpected: games ? round(exp / w) : null,
+    games,
+  }]));
+}
+
+export function getMatchRatingColor(r) {
+  if (r >= 8) return '#22c55e';
+  if (r >= 6.5) return '#eab308';
+  return '#ef4444';
 }
 
 export function getPlayerWinRate(pid, gameWeeks) {
