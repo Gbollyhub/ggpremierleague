@@ -4,6 +4,7 @@ import { IconStar, IconX } from '@/components/ui/Icons';
 import FormationDisplay from '@/components/cards/FormationDisplay';
 import { POS_COLORS, POSITIONS } from '@/data/constants';
 import { getMatchPosition, isGWRecorded } from '@/utils/players';
+import { parseYouTubeLink, getYouTubeEmbedUrl } from '@/utils/video';
 
 const gwCompleted = (gw) => gw.status === 'completed' || gw.completed === true;
 
@@ -117,6 +118,7 @@ export default function GameWeekPage() {
   const [matchReportPid, setMatchReportPid] = useState(null);
   const [videoOpen, setVideoOpen] = useState(false);
   const gw = gameWeeks.find((g) => g.id === selectedGW);
+  const youTube = gw?.matchLink ? parseYouTubeLink(gw.matchLink) : null;
 
   const teamAGoals = useMemo(() => gw ? getTeamGoals(gw, 'A') : [], [gw]);
   const teamBGoals = useMemo(() => gw ? getTeamGoals(gw, 'B') : [], [gw]);
@@ -186,10 +188,20 @@ export default function GameWeekPage() {
                 <IconX className="w-4 h-4" />
               </button>
             </div>
-            <video controls autoPlay className="w-full rounded-2xl shadow-2xl bg-black" style={{ maxHeight: '70vh' }}>
-              <source src={gw.matchLink.replace('dl=0', 'raw=1')} type="video/mp4" />
-              Your browser does not support the video tag.
-            </video>
+            {youTube ? (
+              <iframe
+                src={getYouTubeEmbedUrl(youTube)}
+                title={`Game Week ${gw.weekNumber} recording`}
+                className="w-full aspect-video rounded-2xl shadow-2xl bg-black"
+                allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                allowFullScreen
+              />
+            ) : (
+              <video controls autoPlay className="w-full rounded-2xl shadow-2xl bg-black" style={{ maxHeight: '70vh' }}>
+                <source src={gw.matchLink.replace('dl=0', 'raw=1')} type="video/mp4" />
+                Your browser does not support the video tag.
+              </video>
+            )}
           </div>
         </div>
       )}

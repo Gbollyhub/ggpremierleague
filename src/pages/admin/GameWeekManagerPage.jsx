@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { getManOfTheMatch, calculateMatchRating, getMatchPosition, replaySeason, isGWRecorded } from '@/utils/players';
 import { POSITIONS } from '@/data/constants';
+import { parseYouTubeLink } from '@/utils/video';
 import { IconPlus, IconX, IconStar, IconEdit, IconTrash } from '@/components/ui/Icons';
 
 const gwCompleted = (gw) => gw.status === 'completed' || gw.completed === true;
@@ -547,6 +548,11 @@ export default function GameWeekManagerPage() {
               onChange={(e) => setF('matchLink', e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl gpl-input text-sm"
             />
+            {form.matchLink.trim() && (
+              <p className="text-[10px] text-gpl-muted mt-1.5">
+                {parseYouTubeLink(form.matchLink) ? 'YouTube video detected — plays in the YouTube player' : 'Direct video link — plays in the built-in player (needs a link to the video file, e.g. Dropbox)'}
+              </p>
+            )}
           </div>
 
           {/* Match Stats */}
