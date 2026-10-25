@@ -39,7 +39,7 @@ const MATCH_WEIGHTS = {
     goals:            +1.20, assists:          +0.70, shotsOnTarget:    +0.40,
     blocks:           +0.15, interceptions:    +0.15, tackles:          +0.15,
     cleanSheet:       +0.75, saves:            +0.40, skillMoves:       +0.20,
-    keyPasses:        +0.30,
+    keyPasses:        +0.30, lostBalls:        -0.10,
     shotsOffTarget:   -0.05, bigChancesMissed: -0.03, goalsConceded:    -0.25,
     fouls:            -0.15, yellowCard:       -0.25, redCard:          -1.50,
     ownGoals:         -1.20,
@@ -48,7 +48,7 @@ const MATCH_WEIGHTS = {
     goals:            +0.90, assists:          +0.60, shotsOnTarget:    +0.30,
     blocks:           +0.20, interceptions:    +0.20, tackles:          +0.20,
     cleanSheet:       +0.50, saves:            +0.40, skillMoves:       +0.20,
-    keyPasses:        +0.25,
+    keyPasses:        +0.25, lostBalls:        -0.10,
     shotsOffTarget:   -0.08, bigChancesMissed: -0.06, goalsConceded:    -0.15,
     fouls:            -0.15, yellowCard:       -0.25, redCard:          -1.50,
     ownGoals:         -1.00,
@@ -57,7 +57,7 @@ const MATCH_WEIGHTS = {
     goals:            +0.75, assists:          +0.45, shotsOnTarget:    +0.20,
     blocks:           +0.25, interceptions:    +0.25, tackles:          +0.25,
     cleanSheet:       +0.18, saves:            +0.40, skillMoves:       +0.20,
-    keyPasses:        +0.20,
+    keyPasses:        +0.20, lostBalls:        -0.10,
     shotsOffTarget:   -0.15, bigChancesMissed: -0.15, goalsConceded:    -0.10,
     fouls:            -0.15, yellowCard:       -0.25, redCard:          -1.50,
     ownGoals:         -1.00,
@@ -66,7 +66,7 @@ const MATCH_WEIGHTS = {
     goals:            +0.65, assists:          +0.45, shotsOnTarget:    +0.12,
     blocks:           +0.26, interceptions:    +0.30, tackles:          +0.28,
     cleanSheet:       +0.08, saves:            +0.40, skillMoves:       +0.20,
-    keyPasses:        +0.20,
+    keyPasses:        +0.20, lostBalls:        -0.10,
     shotsOffTarget:   -0.18, bigChancesMissed: -0.25, goalsConceded:    -0.05,
     fouls:            -0.15, yellowCard:       -0.25, redCard:          -1.50,
     ownGoals:         -1.00,
@@ -105,7 +105,7 @@ export const isGWRecorded = (gw) => gw?.isRecorded !== false;
 // defensive stat counted and could never be offset by the tackles/saves nobody logged.
 const RECORDED_ONLY_STATS = [
   'saves', 'shotsOnTarget', 'blocks', 'interceptions', 'tackles', 'skillMoves', 'keyPasses',
-  'goalsConceded', 'fouls', 'shotsOffTarget', 'bigChancesMissed',
+  'goalsConceded', 'fouls', 'shotsOffTarget', 'bigChancesMissed', 'lostBalls',
 ];
 
 // Returns individual match rating on a 0–10 scale.
@@ -116,7 +116,7 @@ export function calculateMatchRating(player, matchStats, isCleanSheet, isRecorde
     goals = 0, assists = 0, tackles = 0, interceptions = 0, blocks = 0,
     saves = 0, shots = 0, shotsOnTarget = 0, shotsOffTarget = 0, fouls = 0,
     yellowCard = false, redCard = false, goalsConceded = 0,
-    skillMoves = 0, bigChancesMissed = 0, ownGoals = 0, keyPasses = 0,
+    skillMoves = 0, bigChancesMissed = 0, ownGoals = 0, keyPasses = 0, lostBalls = 0,
   } = matchStats;
 
   const weights = MATCH_WEIGHTS[getMatchPosition(player, matchStats)];
@@ -135,6 +135,7 @@ export function calculateMatchRating(player, matchStats, isCleanSheet, isRecorde
     fouls,
     shotsOffTarget:   shotsOffTarget || Math.max(0, shots - shotsOnTarget),
     bigChancesMissed,
+    lostBalls,
     yellowCard:       yellowCard ? 1 : 0,
     redCard:          redCard ? 1 : 0,
     ownGoals,
@@ -197,7 +198,8 @@ const ATTRIBUTE_MODEL = {
     { ...filmed((ms) => ms.keyPasses || 0), w: 0.4 },
   ],
   dribbling: [
-    { ...filmed((ms) => ms.skillMoves || 0), w: 1 },
+    { ...filmed((ms) => ms.skillMoves || 0), w: 0.7 },
+    { ...filmed((ms) => ms.lostBalls || 0), w: -0.3 },
   ],
   defending: [
     { ...filmed((ms) => (ms.interceptions || 0) + (ms.tackles || 0) + (ms.blocks || 0)), w: 0.85 },

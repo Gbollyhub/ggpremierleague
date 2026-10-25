@@ -34,7 +34,7 @@ export default function PlayerDetailPage() {
     const totals = {
       shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0,
       fouls: 0, goalsConceded: 0, goalsConcededAsGK: 0, yellowCard: 0, redCard: 0,
-      skillMoves: 0, bigChancesMissed: 0, keyPasses: 0,
+      skillMoves: 0, bigChancesMissed: 0, keyPasses: 0, lostBalls: 0,
     };
     if (!p) return totals;
     gameWeeks.filter(gwCompleted).forEach((gw) => {
@@ -53,6 +53,7 @@ export default function PlayerDetailPage() {
       totals.skillMoves       += ps.skillMoves || 0;
       totals.bigChancesMissed += ps.bigChancesMissed || 0;
       totals.keyPasses        += ps.keyPasses || 0;
+      totals.lostBalls        += ps.lostBalls || 0;
     });
     return totals;
   }, [gameWeeks, p]);
@@ -94,6 +95,7 @@ export default function PlayerDetailPage() {
     { l: 'Shots on Target',     v: gwStats.shotsOnTarget,      c: '#f97316' },
     { l: 'Shots off Target',    v: gwStats.shotsOffTarget,     c: '#fb923c' },
     { l: 'Skill Moves',         v: gwStats.skillMoves,         c: '#a78bfa' },
+    { l: 'Lost Balls',          v: gwStats.lostBalls,          c: '#f43f5e' },
     { l: 'Big Chances Missed',  v: gwStats.bigChancesMissed,   c: '#f43f5e' },
     { l: 'Clean Sheets',        v: p.stats.cleanSheets,        c: '#22c55e' },
     { l: 'Tackles',             v: p.stats.tackles,            c: '#f59e0b' },

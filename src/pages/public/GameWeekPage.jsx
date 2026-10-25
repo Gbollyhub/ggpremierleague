@@ -53,6 +53,7 @@ function MatchReportModal({ pid, gw, players, onClose }) {
     { label: 'Shots on Target', value: ps.shotsOnTarget ?? 0 },
     { label: 'Shots off Target', value: shotsOffTarget },
     { label: 'Skill Moves', value: ps.skillMoves ?? 0 },
+    { label: 'Lost Balls', value: ps.lostBalls ?? 0 },
     { label: 'Big Chances Missed', value: ps.bigChancesMissed ?? 0 },
     { label: 'Tackles', value: ps.tackles ?? 0 },
     { label: 'Interceptions', value: ps.interceptions ?? 0 },

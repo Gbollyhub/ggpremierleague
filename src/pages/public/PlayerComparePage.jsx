@@ -57,7 +57,7 @@ function PlayerHeader({ player, posColor }) {
 const gwCompleted = (gw) => gw.status === 'completed' || gw.completed === true;
 
 function aggregateGWStats(pid, gameWeeks) {
-  const totals = { shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0, fouls: 0, goalsConceded: 0, goalsConcededAsGK: 0, yellowCard: 0, redCard: 0, skillMoves: 0, bigChancesMissed: 0, keyPasses: 0 };
+  const totals = { shots: 0, shotsOnTarget: 0, shotsOffTarget: 0, interceptions: 0, blocks: 0, fouls: 0, goalsConceded: 0, goalsConcededAsGK: 0, yellowCard: 0, redCard: 0, skillMoves: 0, bigChancesMissed: 0, keyPasses: 0, lostBalls: 0 };
   gameWeeks.filter(gwCompleted).forEach((gw) => {
     const ps = gw.playerStats?.[pid];
     if (!ps) return;
@@ -74,6 +74,7 @@ function aggregateGWStats(pid, gameWeeks) {
     totals.skillMoves += ps.skillMoves || 0;
     totals.bigChancesMissed += ps.bigChancesMissed || 0;
     totals.keyPasses += ps.keyPasses || 0;
+    totals.lostBalls += ps.lostBalls || 0;
   });
   return totals;
 }
@@ -128,6 +129,7 @@ export default function PlayerComparePage() {
     { key: 'shotsOnTarget', label: 'Shots on Target' },
     { key: 'shotsOffTarget', label: 'Shots off Target', isHigherBetter: false },
     { key: 'skillMoves', label: 'Skill Moves' },
+    { key: 'lostBalls', label: 'Lost Balls', isHigherBetter: false },
     { key: 'bigChancesMissed', label: 'Big Chances Missed', isHigherBetter: false },
     { key: 'interceptions', label: 'Interceptions' },
     { key: 'blocks', label: 'Blocks' },
